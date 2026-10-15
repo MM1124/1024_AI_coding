@@ -10,7 +10,7 @@
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
-  var STORE_KEY = 'reqplan_demo_v4';   // v4：分角色阶段流转、工作台列表/详情分离、测试排期多人推荐
+  var STORE_KEY = 'reqplan_demo_v5';   // v5：数据看板历史档案、新增「未分析」需求 r5（XQ20260120114）
   var STAGES = E.STAGES;               // 分析 → 开发 → 测试 → 验收 → 已验收
   var STATUS = ['未开始', '进行中', '已完成'];
   var KIND_CLS = { '分析': 'ana', '开发': 'dev', '测试': 'test' };
@@ -273,7 +273,24 @@
 
   /* ======================= 持久化 ======================= */
   var SEQ_DEFAULT = { task: 100, test: 100, change: 100, milestone: 100, plan: 100, accept: 100, review: 100, retro: 100, cr: 100 };
-  function persist() { try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) { } }
+
+  /* 种子指纹（djb2 哈希种子 JSON）
+     用途：mock 数据一旦有增补（新增需求 / 调整基准数字），指纹随之变化，
+     启动时发现缓存指纹与当前种子不一致就自动重新播种 —— 避免"浏览器缓存着旧数据、
+     新加的 mock 需求在页面上看不见"。有了它就不必每次手动升 STORE_KEY。
+     仅演示态生效：若缓存是本机操作产生的，指纹与种子一致，照常沿用不丢改动。 */
+  function seedSig(seed) {
+    var s = '';
+    try { s = JSON.stringify(seed); } catch (e) { s = ''; }
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) | 0; }
+    return 'djb2-' + (h >>> 0).toString(36) + '-' + s.length;
+  }
+  var SEED_SIG = seedSig(SEED);
+
+  function persist() {
+    try { if (DB.meta) DB.meta.seedSig = SEED_SIG; localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) { }
+  }
   function resetData() {
     if (UI.parseTimer) { clearInterval(UI.parseTimer); UI.parseTimer = null; }
     var role = UI.role;
@@ -2765,12 +2782,18 @@
 
   /* ======================= 初始化 ======================= */
   function init() {
-    var loaded = false;
+    var loaded = false, reseeded = false;
     try {
       var raw = localStorage.getItem(STORE_KEY);
-      if (raw) { DB = JSON.parse(raw); loaded = true; }
+      if (raw) {
+        var cached = JSON.parse(raw);
+        /* 仅当缓存指纹与当前种子一致才沿用；不一致说明 mock 数据变过，重新播种 */
+        if (cached && cached.meta && cached.meta.seedSig === SEED_SIG) { DB = cached; loaded = true; }
+        else reseeded = true;
+      }
     } catch (e) { }
     if (!DB || !DB.requirements) { DB = clone(SEED); }
+    if (DB.meta) DB.meta.seedSig = SEED_SIG;
     if (!DB.seq) DB.seq = clone(SEQ_DEFAULT);
     Object.keys(SEQ_DEFAULT).forEach(function (k) { if (DB.seq[k] == null) DB.seq[k] = SEQ_DEFAULT[k]; });
     if (!DB.manualPlans) DB.manualPlans = [];
@@ -2795,8 +2818,7 @@
       }
     } catch (e) { }
 
-    document.addEventListener('click', function (e) {
-      if (e.target.closest && e.target.closest('.tab')) { onTabClick(e); return; }
+    document.addEventListener('click', function (e) {      if (e.target.closest && e.target.closest('.tab')) { onTabClick(e); return; }
       if (e.target.classList && e.target.classList.contains('modal-mask')) { closeModal(); return; }
       onClick(e);
     });
@@ -2815,8 +2837,10 @@
       });
     };
     $('#btnMatrix').onclick = openRoleMatrix;
+    persist();   /* 落一次缓存，保证下次启动能校验种子指纹 */
     render();
     if (loaded) toast('已恢复上次操作数据（可点侧边栏重置）');
+    else if (reseeded) toast('演示数据已更新为最新版本（含新增 mock 需求）');
   }
 
   /* 测试钩子：仅供离线自动化验证脚本读取状态，不影响业务逻辑 */

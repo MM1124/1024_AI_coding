@@ -790,9 +790,11 @@ role('MGR');
 console.log('\n[11] 运行时异常检查');
 ok('全流程无未捕获异常', errors.length === 0, errors.join(' | '));
 
-/* 深链自检：用独立沙箱重启应用，验证 #视图 / #需求 直达与越权回落（不影响主流程桩状态） */
-function bootWithHash(hash) {
+/* 深链自检：用独立沙箱重启应用，验证 #视图 / #需求 直达与越权回落（不影响主流程桩状态）
+   store：可传入一个对象充当 localStorage 的后备存储，用于验证缓存指纹机制 */
+function bootWithHash(hash, store) {
   const errs2 = [];
+  const mem = store || {};
   const docStub = {
     readyState: 'complete',
     querySelector: q, querySelectorAll: () => [], createElement: makeEl,
@@ -801,7 +803,11 @@ function bootWithHash(hash) {
   const sb = {
     console: { log() { }, error() { } },
     document: docStub,
-    localStorage: { getItem() { return null; }, setItem() { }, removeItem() { } },
+    localStorage: {
+      getItem(k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+      setItem(k, v) { mem[k] = String(v); },
+      removeItem(k) { delete mem[k]; }
+    },
     setTimeout, clearTimeout, setInterval() { return 1; }, clearInterval() { },
     Date, Math, JSON, Object, Array, String, Number, isNaN, parseInt, parseFloat, Error, RegExp, Boolean,
     location: { hash: hash }
@@ -812,7 +818,7 @@ function bootWithHash(hash) {
     try { vm.runInContext(fs.readFileSync(path.join(__dirname, f), 'utf8'), sb, { filename: f }); }
     catch (e) { errs2.push(f + ': ' + e.message); }
   });
-  return { app: sb.__app, errs: errs2 };
+  return { app: sb.__app, errs: errs2, store: mem };
 }
 console.log('\n[12] 深链直达（#视图 / #需求）');
 const bDash = bootWithHash('#dash');
@@ -826,6 +832,30 @@ ok('未知 hash 回落角色首页', !!bBad.app && bBad.app.UI.view === 'workben
 const bBare = bootWithHash('');
 ok('无 hash 默认落在角色首页', !!bBare.app && bBare.app.UI.view === 'workbench', bBare.app && bBare.app.UI.view);
 ok('深链启动无未捕获异常', errors.length === 0, errors.join(' | '));
+
+/* 缓存指纹：mock 数据变更后不能让浏览器里的旧缓存把新数据挡住 */
+console.log('\n[13] 演示数据缓存与种子指纹');
+const memStore = {};
+const bSeed = bootWithHash('#workbench', memStore);
+const kKey = Object.keys(memStore)[0];
+ok('首次启动按种子播种（需求 5 条）', bSeed.app.getDB().requirements.length === 5,
+  String(bSeed.app.getDB().requirements.length));
+ok('启动后写入缓存且带种子指纹', !!kKey && !!JSON.parse(memStore[kKey]).meta.seedSig, String(kKey));
+const sig1 = JSON.parse(memStore[kKey]).meta.seedSig;
+const bAgain = bootWithHash('#workbench', memStore);
+ok('指纹一致时沿用缓存（不重复播种）', !!bAgain.app && bAgain.app.UI.view === 'workbench' &&
+  JSON.parse(memStore[kKey]).meta.seedSig === sig1, bAgain.app && bAgain.app.UI.view);
+/* 模拟浏览器里残留的旧版本数据（需求少一条、指纹过期） */
+memStore[kKey] = JSON.stringify({
+  requirements: [{ id: 'r1', stage: '分析', priority: 'P0', title: '旧缓存需求', code: 'XQ_OLD', createdAt: '2026-10-01' }],
+  featurePoints: [], devTasks: [], testRecords: [], meta: { seedSig: 'stale-old-sig', demoDate: '2026-10-15' }
+});
+const bStale = bootWithHash('#workbench', memStore);
+ok('指纹过期时自动重新播种（旧缓存不生效）',
+  bStale.app.getDB().requirements.length === 5 && bStale.app.getDB().requirements.some(r => r.id === 'r5'),
+  bStale.app.getDB().requirements.length + ' 条');
+ok('重新播种后缓存指纹刷新为当前种子', JSON.parse(memStore[kKey]).meta.seedSig === sig1);
+ok('缓存机制运行无未捕获异常', errors.length === 0, errors.join(' | '));
 
 console.log('\n===== UI 冒烟结果：' + pass + ' 通过 / ' + fail + ' 失败 =====\n');
 process.exit(fail ? 1 : 0);
