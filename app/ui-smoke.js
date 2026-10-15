@@ -148,6 +148,41 @@ ok('进入工作台默认落在需求队列列表页', app.UI.reqOpen === false,
 has('渲染需求队列', '需求队列');
 ok('列表页不直接摊开功能点清单', view().indexOf('功能点清单') < 0);
 has('显示当前身份', '当前身份：产品经理');
+/* 工作台列表页：按「阶段」重新分类 */
+ok('列表页渲染阶段流水线概览', view().indexOf('stage-rail') >= 0);
+ok('概览露出全部 5 个阶段节点', (view().match(/rail-node/g) || []).length === 5, String((view().match(/rail-node/g) || []).length));
+ok('无需求的阶段在概览中淡显（带 empty 标记）', view().indexOf('rail-node empty') >= 0);
+const neBuckets = E.stageBuckets(DB).filter(b => b.count > 0);
+ok('阶段分组数 = 有需求的阶段数', (view().match(/class="stage-sec"/g) || []).length === neBuckets.length,
+  (view().match(/class="stage-sec"/g) || []).length + ' vs ' + neBuckets.length);
+ok('阶段分组按 STAGES 顺序出现', (function () {
+  let idx = -1;
+  return neBuckets.every(function (b) {
+    const i = view().indexOf('class="ss-t">' + b.stage + '<');
+    if (i < 0 || i < idx) return false;
+    idx = i; return true;
+  });
+})());
+ok('分组组头含条数与阶段责任人', view().indexOf('class="ss-n">' + neBuckets[0].count + ' 条<') >= 0 && view().indexOf('主导') >= 0);
+ok('分组组头带阶段聚合指标', view().indexOf('ss-metrics') >= 0 && view().indexOf('ss-m">') >= 0);
+ok('卡片按阶段着色（注入 --sc 变量）', view().indexOf('--sc:var(--') >= 0);
+ok('概览与头部需求总数一致（4 条）',
+  view().indexOf('共 4 条需求') >= 0 && view().indexOf('共 4 条 · 按阶段归类') >= 0);
+ok('列表页不出现空状态占位', view().indexOf('暂无需求') < 0);
+ok('卡片保留进度条（分析/开发/测试）',
+  view().indexOf('>分析</span>') >= 0 && view().indexOf('>开发</span>') >= 0 && view().indexOf('>测试</span>') >= 0);
+/* 阶段流转后，列表页分组应随之重排 */
+const reqR4 = DB.requirements.filter(r => r.id === 'r4')[0];
+reqR4.stage = '测试';
+clickTab('workbench');
+ok('需求阶段变更后自动落到对应分组', (function () {
+  const i = view().indexOf('class="ss-t">测试<');
+  const j = view().indexOf('class="ss-t">分析<');
+  return i >= 0 && (j < 0 || i > j);
+})(), '测试分组未在分析分组之后出现');
+reqR4.stage = '分析';
+clickTab('workbench');
+ok('恢复原阶段后分组还原', view().indexOf('class="ss-t">测试<') < 0);
 clickAct('pick-req', 'r1');
 ok('点击需求后进入详情页', app.UI.reqOpen === true);
 has('详情页展示功能点清单', '功能点清单');

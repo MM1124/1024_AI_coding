@@ -262,5 +262,43 @@ ok('测试人排期推荐不突破单日上限', recTestQ && recTestQ.daily.ever
 const recTestQ2 = E.recommendSchedule(dbTest, 'p5', 6, '2026-10-20', { excludeTestId: 'tc3' });
 ok('排除测试记录自身占用后推荐可提前', recTestQ2 && recTestQ2.start === '2026-10-20', JSON.stringify(recTestQ2 && recTestQ2.start));
 
+console.log('\n[18] 工作台按阶段分类（stageBuckets / dueRiskMap）');
+const dbBk = DB();
+const buckets = E.stageBuckets(dbBk);
+ok('返回 5 个桶且顺序与 STAGES 一致', buckets.map(b => b.stage).join(',') === E.STAGES.join(','),
+  buckets.map(b => b.stage).join(','));
+ok('桶内需求数合计等于需求总数', buckets.reduce((s, b) => s + b.count, 0) === dbBk.requirements.length);
+ok('每条需求恰好归入一个桶（不重不漏）',
+  buckets.reduce((a, b) => a.concat(b.reqs.map(r => r.id)), []).sort().join(',') ===
+  dbBk.requirements.map(r => r.id).sort().join(','));
+ok('桶的 count 与 reqs 长度一致', buckets.every(b => b.count === b.reqs.length));
+ok('空桶保留（count = 0 且 reqs 为空）', buckets.some(b => b.count === 0 && b.reqs.length === 0));
+const bkDev = buckets.filter(b => b.stage === '开发')[0];
+ok('开发桶含 2 条（r2 / r3）', bkDev.count === 2, JSON.stringify(bkDev.reqs.map(r => r.id)));
+ok('开发桶 P0 计 1 条（r3）', bkDev.p0 === 1, String(bkDev.p0));
+ok('开发桶门禁未过 2 条（r2 / r3 均未闭环）', bkDev.blocked === 2, String(bkDev.blocked));
+ok('开发桶临近到期 2 条（r2 / r3 均有任务命中提醒窗口）', bkDev.soon === 2, String(bkDev.soon));
+ok('开发桶平均进度：分析 100 / 开发 13 / 测试 13',
+  bkDev.ana === 100 && bkDev.dev === 13 && bkDev.test === 13,
+  [bkDev.ana, bkDev.dev, bkDev.test].join('/'));
+const bkAna = buckets.filter(b => b.stage === '分析')[0];
+ok('分析桶含 2 条（r1 / r4）且进度均为 0（未拆解未确认）',
+  bkAna.count === 2 && bkAna.ana === 0 && bkAna.dev === 0 && bkAna.test === 0,
+  bkAna.count + ' / ' + bkAna.ana);
+ok('已验收桶不计入门禁未过 / 临近到期',
+  buckets.filter(b => b.stage === '已验收').every(b => b.blocked === 0 && b.soon === 0 && b.overdue === 0));
+
+const risk = E.dueRiskMap(dbBk);
+ok('r2 / r3 命中「临近到期」且未超期', risk.r2 && risk.r2.soon && !risk.r2.overdue && risk.r3.soon && !risk.r3.overdue,
+  JSON.stringify(risk));
+ok('无需求命中「已超期」（演示时点 10-15 无逾期任务）', Object.keys(risk).every(k => !risk[k].overdue));
+const dbLate = DB();
+dbLate.devTasks.filter(t => t.id === 't3')[0].end = '2026-10-14';   // 改到演示时点之前
+ok('任务截止日早于演示时点 → 标记超期', E.dueRiskMap(dbLate).r2.overdue === true);
+const dbFin = DB();
+dbFin.devTasks.forEach(t => { t.status = '已完成'; });
+dbFin.testRecords.forEach(r => { r.status = '已完成'; });
+ok('全部任务完成后不再有到期风险', Object.keys(E.dueRiskMap(dbFin)).length === 0);
+
 console.log('\n===== 结果：' + pass + ' 通过 / ' + fail + ' 失败 =====\n');
 process.exit(fail ? 1 : 0);

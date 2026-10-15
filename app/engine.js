@@ -490,11 +490,68 @@ globalThis.Engine = (function () {
       });
   }
 
+  /* 每个需求的到期风险：soon = 有未完成任务命中提醒规则；overdue = 有未完成任务已超期
+     口径与 reminders() 一致：工作量 >10h → 到期前 2 天，≤10h → 到期前 1 天 */
+  function dueRiskMap(DB) {
+    var today = DB.meta && DB.meta.demoDate;
+    var map = {};
+    function put(reqId, key) {
+      if (!reqId) return;
+      if (!map[reqId]) map[reqId] = { soon: false, overdue: false };
+      map[reqId][key] = true;
+    }
+    function scan(items) {
+      (items || []).forEach(function (x) {
+        if (x.status === '已完成' || !x.end || !x.reqId) return;
+        var d = diffDays(today, x.end);
+        if (d < 0) put(x.reqId, 'overdue');
+        else if (d <= (x.hours > 10 ? 2 : 1)) put(x.reqId, 'soon');
+      });
+    }
+    scan(DB.devTasks);
+    scan(DB.testRecords);
+    return map;
+  }
+
+  /* 按阶段把需求分桶（工作台「按阶段分类」的数据源）
+     返回 STAGES 顺序的桶数组，空桶也保留（由视图决定是否隐藏），每桶附聚合指标：
+       count   条数
+       p0      P0 条数
+       blocked 门禁未通过的条数（已验收不计）
+       soon    有任务即将到期的条数
+       overdue 有任务已超期的条数
+       ana/dev/test 该桶内需求的平均进度（无需求时为 0） */
+  function stageBuckets(DB) {
+    var q = queueSorted(DB);
+    var risk = dueRiskMap(DB);
+    return STAGES.map(function (s) {
+      var list = q.filter(function (r) { return r.stage === s; });
+      var n = list.length || 1;
+      var sum = { ana: 0, dev: 0, test: 0 };
+      var blocked = 0, soon = 0, overdue = 0, p0 = 0;
+      list.forEach(function (r) {
+        var p = progress(DB, r.id);
+        sum.ana += p.anaProgress; sum.dev += p.devProgress; sum.test += p.testProgress;
+        if (r.priority === 'P0') p0++;
+        if (s !== '已验收' && !stageGate(DB, r.id).ok) blocked++;
+        var k = risk[r.id];
+        if (s !== '已验收' && k) { if (k.soon) soon++; if (k.overdue) overdue++; }
+      });
+      return {
+        stage: s, reqs: list, count: list.length, p0: p0,
+        blocked: blocked, soon: soon, overdue: overdue,
+        ana: Math.round(sum.ana / n), dev: Math.round(sum.dev / n), test: Math.round(sum.test / n)
+      };
+    });
+  }
+
   return {
     DAY_CAP: DAY_CAP,
     DAY_MIN: DAY_MIN,
     PRI_W: PRI_W,
     STAGES: STAGES,
+    stageBuckets: stageBuckets,
+    dueRiskMap: dueRiskMap,
     nextStage: nextStage,
     findById: findById,
     toDate: toDate,

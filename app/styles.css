@@ -342,23 +342,66 @@ select:disabled,input:disabled{background:var(--panel-2);color:var(--text-3)}
 .sys-chip.rel{border-color:var(--purple-line);background:var(--purple-bg);color:var(--purple)}
 details summary{cursor:pointer;font-size:12px;color:var(--blue)}
 
-/* ---------- 需求队列列表页（工作台首屏） ---------- */
-.req-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;margin-top:14px}
+/* ---------- 需求队列列表页（工作台首屏）· 按阶段分类 ---------- */
+/* 阶段流水线概览：五个阶段全部露出，空阶段淡显 */
+.stage-rail{
+  display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:14px 0 2px;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:11px 13px;
+}
+.rail-node{display:flex;align-items:center;gap:7px;padding:4px 10px;border-radius:9px;border:1px solid transparent}
+.rail-node .rn-dot{width:8px;height:8px;border-radius:50%;background:var(--sc);flex:none}
+.rail-node .rn-t{font-size:12.5px}
+.rail-node .rn-n{
+  font-size:11.5px;font-weight:500;color:var(--sc);background:var(--sc-bg);
+  border:1px solid var(--sc-line);border-radius:999px;padding:0 7px;line-height:17px;min-width:21px;text-align:center;
+}
+.rail-node.empty{opacity:.42}
+.rail-arrow{color:var(--text-3);font-size:13px;padding:0 1px}
+.rail-sum{margin-left:auto;font-size:11.5px;color:var(--text-3)}
+
+/* 阶段分组：组头 + 职责说明 + 卡片网格 */
+.stage-sec{margin-top:17px}
+.ss-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.ss-flag{width:3px;height:15px;border-radius:2px;background:var(--sc);flex:none}
+.ss-t{font-size:14px;font-weight:500}
+.ss-n{
+  font-size:11.5px;color:var(--sc);background:var(--sc-bg);border:1px solid var(--sc-line);
+  border-radius:999px;padding:1px 8px;
+}
+.ss-owner{font-size:11.5px;color:var(--text-3)}
+.ss-metrics{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.ss-m{
+  font-size:11px;color:var(--text-2);background:var(--panel-2);border:1px solid var(--line-2);
+  border-radius:999px;padding:1px 8px;
+}
+.ss-m.p0{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
+.ss-m.bad{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
+.ss-m.warn{color:var(--amber);background:var(--amber-bg);border-color:var(--amber-line)}
+.ss-note{font-size:11.5px;color:var(--text-3);margin-top:6px}
+.stage-sec .req-grid{margin-top:11px}
+
+.req-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:13px}
 .req-card{
-  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;
-  cursor:pointer;transition:.15s;
+  position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:13px 14px 13px 17px;cursor:pointer;transition:.15s;overflow:hidden;
 }
-.req-card:hover{border-color:var(--blue-line);box-shadow:0 2px 10px rgba(0,0,0,.05)}
-.rc-head{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.req-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--sc);opacity:.85}
+.req-card:hover{border-color:var(--sc-line);box-shadow:0 3px 12px rgba(0,0,0,.06);transform:translateY(-1px)}
+.rc-head{display:flex;align-items:flex-start;gap:8px}
 .rc-idx{
-  flex:none;width:22px;height:22px;line-height:22px;text-align:center;border-radius:6px;
-  background:var(--panel-2);border:1px solid var(--line-2);font-size:12px;color:var(--text-2);
+  flex:none;width:22px;height:22px;line-height:20px;text-align:center;border-radius:7px;
+  background:var(--sc-bg);border:1px solid var(--sc-line);font-size:11.5px;color:var(--sc);
 }
-.rc-t{font-size:13.5px;font-weight:500}
-.rc-tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}
+.rc-main{flex:1;min-width:0}
+.rc-t{font-size:13.5px;font-weight:500;line-height:1.4}
+.rc-code{font-size:11px;color:var(--text-3);margin-top:2px}
+.rc-pri{display:flex;gap:5px;flex:none}
+.rc-tags{display:flex;gap:5px;flex-wrap:wrap;margin:9px 0 0}
+.rc-prog{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:7px 9px;margin-top:9px}
+.rc-prog .bar-row{margin:2.5px 0}
 .rc-foot{
-  display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;
-  padding-top:8px;border-top:1px dashed var(--line);
+  display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;
+  padding-top:8px;border-top:1px dashed var(--line);font-size:11.5px;
 }
 .req-desc{font-size:12.5px;color:var(--text-2);line-height:1.6;margin-top:6px}
 

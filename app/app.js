@@ -38,6 +38,15 @@
   };
   /* 阶段流转责任角色：每个阶段由对应角色提交，管理者可兜底 */
   var STAGE_OWNER = { '分析': 'PM', '开发': 'DEV', '测试': 'QA', '验收': 'PM' };
+  /* 阶段主题：色板 key（复用 --amber/--blue/--purple/--green/--teal 全家桶）+ 该阶段职责说明
+     仅用于工作台「按阶段分类」的视觉分层，不参与任何计算 */
+  var STAGE_THEME = {
+    '分析': { key: 'amber', desc: '需求导入与 AI 拆解 → 人工确认功能点并锁定基准 → 分析排期与执行' },
+    '开发': { key: 'blue', desc: '开发资源排期 → 按功能点引入任务（含关联系统自动建单）→ 逐笔维护实施状态' },
+    '测试': { key: 'purple', desc: '测试资源排期 → 由开发任务派生测试记录 → 逐笔维护测试状态' },
+    '验收': { key: 'green', desc: '功能点逐条验收 → 加权达成度与计划偏差 → 组织验收结论' },
+    '已验收': { key: 'teal', desc: '已结项归档，纳入部门目标达成度统计与员工复盘' }
+  };
   var VIEW_META = {
     workbench: { idx: '1', name: '需求工作台', nav: '队列·拆解·阶段流转', desc: '需求队列列表 → 点击进入详情：导入拆解 → 人工确认锁定（基准不再解锁）→ 阶段门禁流转' },
     schedule: { idx: '2', name: '排期中心', nav: '三阶段计划·阶段流转', desc: '分析 / 开发 / 测试三阶段计划分离，排期推荐 + 计划完成收口 + 分角色阶段流转 + 手动添加计划' },
@@ -121,6 +130,13 @@
   function canView(v) { return (ROLE_VIEWS[UI.role] || []).indexOf(v) >= 0; }
   /* 阶段流转按角色分派：每个阶段由对应角色提交，管理者可兜底 */
   function stageOwnerName(stage) { var k = STAGE_OWNER[stage]; return k ? ROLES[k].name : '—'; }
+  /* 阶段主题取用（工作台按阶段分类的视觉层） */
+  function stageTheme(s) { return STAGE_THEME[s] || { key: 'gray', desc: '' }; }
+  function stageVars(s) {
+    var k = stageTheme(s).key;
+    return '--sc:var(--' + k + ');--sc-bg:var(--' + k + '-bg);--sc-line:var(--' + k + '-line)';
+  }
+  function stageOwnerLabel(s) { return s === '已验收' ? '已结项归档' : stageOwnerName(s) + ' 主导'; }
   function canSubmitStage(req) {
     if (!req || !can('stage.submit')) return false;
     if (UI.role === 'MGR') return true;
@@ -305,32 +321,73 @@
   /* ======================= 视图 1：需求工作台 ======================= */
   /* 1-A 需求队列（列表页）：进入工作台默认只看列表，点击某条需求才展开详情，避免一进来就平铺 */
   function vReqList() {
-    var reqs = E.queueSorted(DB);
-    var cards = reqs.map(function (r, i) {
+    var buckets = E.stageBuckets(DB);
+    var risk = E.dueRiskMap(DB);
+    var total = buckets.reduce(function (s, b) { return s + b.count; }, 0);
+
+    /* --- 阶段流水线概览：五个阶段全部露出（空阶段淡显），一眼看出需求分布与流转方向 --- */
+    var rail = '<div class="stage-rail">' + buckets.map(function (b, i) {
+      return (i ? '<span class="rail-arrow">›</span>' : '') +
+        '<div class="rail-node' + (b.count ? '' : ' empty') + '" style="' + stageVars(b.stage) + '" title="' + esc(b.stage) + '：' + b.count + ' 条">' +
+        '<span class="rn-dot"></span><span class="rn-t">' + esc(b.stage) + '</span>' +
+        '<span class="rn-n">' + b.count + '</span></div>';
+    }).join('') + '<span class="rail-sum">共 ' + total + ' 条需求</span></div>';
+
+    /* --- 单条需求摘要卡：序号 / 标题 / 标签 / 三条进度 / 门禁结论 --- */
+    function card(r, i) {
       var p = E.progress(DB, r.id);
       var g = E.stageGate(DB, r.id);
-      var pendingCr = (DB.changeRequests || []).filter(function (c) { return c.reqId === r.id && c.status === '待审批'; }).length;
+      var k = risk[r.id] || {};
       var undone = g.items.filter(function (x) { return !x.pass; }).length;
+      var pendingCr = (DB.changeRequests || []).filter(function (c) { return c.reqId === r.id && c.status === '待审批'; }).length;
+      var foot = r.stage === '已验收'
+        ? '<span class="ok-cell">已结项 · 纳入目标达成度统计</span>'
+        : (g.ok ? '<span class="ok-cell">门禁通过，可提交「' + esc(g.next) + '」</span>'
+                : '<span class="muted">门禁未通过，剩 ' + undone + ' 项</span>');
       return '<div class="req-card" data-act="pick-req" data-id="' + r.id + '">' +
         '<div class="rc-head"><span class="rc-idx">' + (i + 1) + '</span>' +
-        '<div style="flex:1"><div class="rc-t">' + esc(r.title) + '</div>' +
-        '<div class="sub">' + esc(r.code) + ' · ' + esc(r.source) + ' · 创建 ' + esc(r.createdAt) + '</div></div>' +
-        priTag(r.priority) + stageTag(r.stage) + '</div>' +
-        '<div class="rc-tags">' + (r.confirmed ? tag('基准 ' + versionOf(r), 'green') : tag('功能点待确认', 'amber')) +
+        '<div class="rc-main"><div class="rc-t">' + esc(r.title) + '</div>' +
+        '<div class="rc-code">' + esc(r.code) + ' · ' + esc(r.source) + ' · 创建 ' + esc(r.createdAt) + '</div></div>' +
+        '<div class="rc-pri">' + priTag(r.priority) + stageTag(r.stage) + '</div></div>' +
+        '<div class="rc-tags">' +
+        (r.confirmed ? tag('基准 ' + versionOf(r), 'green') : tag('功能点待确认', 'amber')) +
         tag('功能点 ' + fpsOf(r.id).length + ' 个', 'gray') +
-        (pendingCr ? tag('变更待审批 ' + pendingCr, 'purple') : '') + '</div>' +
+        (pendingCr ? tag('变更待审批 ' + pendingCr, 'purple') : '') +
+        (k.overdue ? tag('已超期', 'red') : (k.soon ? tag('临近到期', 'amber') : '')) +
+        '</div>' +
+        '<div class="rc-prog">' +
         '<div class="bar-row"><span class="lbl">分析</span>' + scoreBar(p.anaProgress) + '<span class="val">' + p.anaProgress + '%</span></div>' +
         '<div class="bar-row"><span class="lbl">开发</span>' + scoreBar(p.devProgress) + '<span class="val">' + p.devProgress + '%</span></div>' +
         '<div class="bar-row"><span class="lbl">测试</span>' + scoreBar(p.testProgress) + '<span class="val">' + p.testProgress + '%</span></div>' +
-        '<div class="rc-foot"><span class="' + (g.ok && r.stage !== '已验收' ? 'ok-cell' : 'muted') + '">' +
-        (r.stage === '已验收' ? '已结项' : (g.ok ? '门禁通过，可提交「' + g.next + '」' : '门禁未通过，剩 ' + undone + ' 项')) + '</span>' +
+        '</div>' +
+        '<div class="rc-foot">' + foot +
         '<button class="btn mini" data-act="pick-req" data-id="' + r.id + '">查看详情 ›</button></div></div>';
+    }
+
+    /* --- 阶段分组：只渲染有需求的阶段，避免空组噪声；组头带该阶段聚合指标 --- */
+    var sections = buckets.filter(function (b) { return b.count > 0; }).map(function (b) {
+      var ms = [];
+      if (b.p0) ms.push('<span class="ss-m p0">P0 × ' + b.p0 + '</span>');
+      if (b.overdue) ms.push('<span class="ss-m bad">已有超期 ' + b.overdue + '</span>');
+      if (b.soon) ms.push('<span class="ss-m warn">临近到期 ' + b.soon + '</span>');
+      if (b.blocked) ms.push('<span class="ss-m">门禁未过 ' + b.blocked + '</span>');
+      if (b.stage !== '已验收') {
+        ms.push('<span class="ss-m">均值 分析 ' + b.ana + '% · 开发 ' + b.dev + '% · 测试 ' + b.test + '%</span>');
+      }
+      return '<section class="stage-sec" style="' + stageVars(b.stage) + '">' +
+        '<div class="ss-head"><span class="ss-flag"></span>' +
+        '<span class="ss-t">' + esc(b.stage) + '</span>' +
+        '<span class="ss-n">' + b.count + ' 条</span>' +
+        '<span class="ss-owner">' + esc(stageOwnerLabel(b.stage)) + '</span>' +
+        '<span class="ss-metrics">' + ms.join('') + '</span></div>' +
+        '<div class="ss-note">' + esc(stageTheme(b.stage).desc) + '</div>' +
+        '<div class="req-grid">' + b.reqs.map(card).join('') + '</div></section>';
     }).join('');
 
-    return '<div class="alert blue"><div>' + roleTag() + ' · <b>需求队列</b>（' + reqs.length + ' 条）：点击任意需求进入详情页，进行导入拆解、功能点确认与阶段流转。' +
+    return '<div class="alert blue"><div>' + roleTag() + ' · <b>需求队列</b>（共 ' + total + ' 条 · 按阶段归类）：点任意卡片进入详情页，进行导入拆解、功能点确认与阶段流转。' +
       (can('fp.edit') ? '当前身份可导入需求并拆解功能点。' : '当前身份对本页为只读查看。') +
       '<div class="sub">' + esc(curRole().desc) + '</div></div></div>' +
-      '<div class="req-grid">' + (cards || '<div class="empty">暂无需求</div>') + '</div>';
+      rail + (sections || '<div class="empty">暂无需求</div>');
   }
 
   /* 1-B 需求详情页：只保留「需求信息 → 导入/拆解 → 功能点清单 → 阶段流转」四块主线 */
