@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node（本项目零依赖，仅防御未来引入）
+node_modules/
+npm-debug.log*
+yarn-error.log*
+package-lock.json
+pnpm-lock.yaml
+
+# Python（准备本地 HTTP 预览时可能产生）
+__pycache__/
+*.py[cod]
+.venv/
+venv/

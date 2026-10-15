@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>需求拆解与排期闭环 · 演示</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo">R</span>
+      <div>
+        <div class="brand-title">需求拆解与排期闭环</div>
+        <div class="brand-sub">导入 · 拆解 · 排期 · 执行 · 验收</div>
+      </div>
+    </div>
+    <nav class="sidenav" id="tabs"></nav>
+    <div class="side-foot">
+      <label class="side-field">当前身份
+        <select id="selRole">
+          <option value="PM">产品经理 · 张明</option>
+          <option value="DEV">开发负责人 · 李伟</option>
+          <option value="QA">测试工程师 · 陈静</option>
+          <option value="MGR">管理者 · 王总</option>
+        </select>
+      </label>
+      <label class="side-field">演示时点（触发提醒规则）
+        <input type="date" id="demoDate">
+      </label>
+      <div class="side-actions">
+        <button class="btn ghost mini" id="btnMatrix">角色能力矩阵</button>
+        <button class="btn ghost mini" id="btnReset">重置演示数据</button>
+      </div>
+      <span class="tag-mock" title="演示数据为 MOCK，可在界面重置">MOCK 数据</span>
+    </div>
+  </aside>
+  <section class="content">
+    <header class="page-head" id="pageHead"></header>
+    <main id="view"></main>
+  </section>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toast" class="toast"></div>
+
+<script src="data.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
