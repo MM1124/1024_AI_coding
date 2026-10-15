@@ -68,6 +68,13 @@ globalThis.SEED = {
       priority: 'P2', stage: '分析', order: 4, source: '市场部', createdAt: '2026-10-14',
       desc: 'MOCK 需求描述：还款时支持使用优惠券抵扣还款金额，涉及券核销、金额计算与对账处理。',
       parsed: false, confirmed: false, aiDone: false, fpVersion: 0
+    },
+    {
+      // 全新导入、尚未做 AI 拆解的需求：功能点为空，走「导入 → AI 分析 → 确认锁定」完整起点
+      id: 'r5', code: 'XQ20260120114', title: '还款提醒智能触达',
+      priority: 'P2', stage: '分析', order: 5, source: '客服中心', createdAt: '2026-10-15',
+      desc: 'MOCK 需求描述：在账单还款日前 3 天，结合客户还款习惯与活跃时段，智能选择短信 / App 推送 / 智能外呼渠道完成触达，并统计触达效果与逾期改善情况。',
+      parsed: false, confirmed: false, aiDone: false, fpVersion: 0
     }
   ],
 
@@ -211,6 +218,37 @@ globalThis.SEED = {
   // 计划外工作 / 手动新增计划（分析 / 开发 / 测试三类，计入人员占用，避免排期冲突）
   manualPlans: [],
 
+  // ---------------------------------------------------------------------------
+  // 数据看板用历史需求档案（MOCK）：仅服务「月度趋势 / 部门维度 / 月度工作量」三张看板，
+  // 不参与排期推荐、阶段门禁、达成度、提醒等任何既有计算。
+  // 当前在跑的 4 条需求由 requirements + devTasks + testRecords 实时折算后并入本月（见 engine.liveRecords）。
+  // 字段：month 提出月份 / source 提出业务部门 / priority / stage / sys 主系统 / owner 主要实施人
+  //       ana-dev-test 三阶段工时（小时）
+  // ---------------------------------------------------------------------------
+  reqArchive: [
+    { id: 'h01', code: 'XQ2026050003', month: '2026-05', source: '信用卡中心', priority: 'P1', stage: '已验收', sys: 's_core', owner: 'p2', ana: 36, dev: 152, test: 56 },
+    { id: 'h02', code: 'XQ2026050011', month: '2026-05', source: '客户运营部', priority: 'P2', stage: '已验收', sys: 's_chn', owner: 'p3', ana: 20, dev: 96, test: 32 },
+    { id: 'h03', code: 'XQ2026050018', month: '2026-05', source: '市场部', priority: 'P2', stage: '已验收', sys: 's_data', owner: 'p6', ana: 16, dev: 72, test: 24 },
+
+    { id: 'h04', code: 'XQ2026060002', month: '2026-06', source: '信用卡中心', priority: 'P0', stage: '已验收', sys: 's_pay', owner: 'p4', ana: 48, dev: 208, test: 80 },
+    { id: 'h05', code: 'XQ2026060009', month: '2026-06', source: '风控部', priority: 'P1', stage: '已验收', sys: 's_core', owner: 'p2', ana: 30, dev: 140, test: 52 },
+    { id: 'h06', code: 'XQ2026060014', month: '2026-06', source: '手机银行部', priority: 'P2', stage: '已验收', sys: 's_chn', owner: 'p3', ana: 22, dev: 88, test: 36 },
+    { id: 'h07', code: 'XQ2026060021', month: '2026-06', source: '客户运营部', priority: 'P1', stage: '已验收', sys: 's_data', owner: 'p6', ana: 26, dev: 120, test: 44 },
+
+    { id: 'h08', code: 'XQ2026070004', month: '2026-07', source: '信用卡中心', priority: 'P1', stage: '已验收', sys: 's_core', owner: 'p2', ana: 32, dev: 144, test: 48 },
+    { id: 'h09', code: 'XQ2026070013', month: '2026-07', source: '市场部', priority: 'P2', stage: '已验收', sys: 's_chn', owner: 'p3', ana: 18, dev: 76, test: 28 },
+
+    { id: 'h10', code: 'XQ2026080001', month: '2026-08', source: '信用卡中心', priority: 'P0', stage: '已验收', sys: 's_core', owner: 'p4', ana: 52, dev: 232, test: 88 },
+    { id: 'h11', code: 'XQ2026080008', month: '2026-08', source: '风控部', priority: 'P1', stage: '已验收', sys: 's_pay', owner: 'p2', ana: 28, dev: 132, test: 50 },
+    { id: 'h12', code: 'XQ2026080015', month: '2026-08', source: '客服中心', priority: 'P2', stage: '已验收', sys: 's_chn', owner: 'p3', ana: 20, dev: 84, test: 30 },
+    { id: 'h13', code: 'XQ2026080022', month: '2026-08', source: '手机银行部', priority: 'P1', stage: '测试', sys: 's_data', owner: 'p6', ana: 30, dev: 128, test: 46 },
+    { id: 'h14', code: 'XQ2026080029', month: '2026-08', source: '客户运营部', priority: 'P2', stage: '验收', sys: 's_core', owner: 'p4', ana: 24, dev: 100, test: 38 },
+
+    { id: 'h15', code: 'XQ2026090005', month: '2026-09', source: '信用卡中心', priority: 'P1', stage: '已验收', sys: 's_core', owner: 'p2', ana: 34, dev: 148, test: 54 },
+    { id: 'h16', code: 'XQ2026090012', month: '2026-09', source: '风控部', priority: 'P2', stage: '已验收', sys: 's_chn', owner: 'p3', ana: 22, dev: 92, test: 34 },
+    { id: 'h17', code: 'XQ2026090020', month: '2026-09', source: '市场部', priority: 'P1', stage: '验收', sys: 's_pay', owner: 'p4', ana: 26, dev: 118, test: 42 }
+  ],
+
   // AI 解析预置结果（用于「导入 → 拆解」演出，未接入真实模型）
   parsePresets: {
     r1: ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'],
@@ -219,6 +257,13 @@ globalThis.SEED = {
       { id: 'f14', reqId: 'r4', name: '还款金额抵扣计算', desc: '按券规则计算抵扣金额', mainSys: 's_core', relSys: ['s_data'], priority: 'P2', ac: '计算与账务一致', analysisHours: 6, confirmed: false, analyst: '', analysisPlan: null, analysisStatus: '未开始' },
       { id: 'f15', reqId: 'r4', name: '券核销与回滚', desc: '扣款失败时支持券回滚', mainSys: 's_core', relSys: ['s_chn', 's_pay'], priority: 'P2', ac: '回滚成功率 100%', analysisHours: 8, confirmed: false, analyst: '', analysisPlan: null, analysisStatus: '未开始' },
       { id: 'f16', reqId: 'r4', name: '券使用数据回写', desc: '券核销结果回写数据平台', mainSys: 's_data', relSys: ['s_core'], priority: 'P2', ac: 'T+1 内完成回写', analysisHours: 4, confirmed: false, analyst: '', analysisPlan: null, analysisStatus: '未开始' }
+    ],
+    r5: [
+      { id: 'f17', reqId: 'r5', name: '触达策略配置', desc: '配置提醒节点、频次与文案模板', mainSys: 's_core', relSys: ['s_chn'], priority: 'P1', ac: '策略生效实时，支持按客群差异化', analysisHours: 6, confirmed: false, analyst: '', analysisPlan: null, analysisStatus: '未开始' },
+      { id: 'f18', reqId: 'r5', name: '客户还款习惯画像取数', desc: '取还款习惯与活跃时段画像', mainSys: 's_data', relSys: ['s_core'], priority: 'P1', ac: '画像 T+1 更新，字段完整率 ≥99%', analysisHours: 8, confirmed: false, analyst: '', analysisPlan: null, analysisStatus: '未开始' },
+      { id: 'f19', reqId: 'r5', name: '智能渠道选择与触达', desc: '按画像选择短信 / 推送 / 外呼触达', mainSys: 's_chn', relSys: ['s_core', 's_data'], priority: 'P1', ac: '触达成功率 ≥95%，频次不超限', analysisHours: 10, confirmed: false, analyst: '', analysisPlan: null, analysisStatus: '未开始' },
+      { id: 'f20', reqId: 'r5', name: '触达结果回写与效果统计', desc: '触达明细回写并统计转化效果', mainSys: 's_data', relSys: ['s_chn'], priority: 'P2', ac: '回写成功率 100%，报表 T+1 出数', analysisHours: 5, confirmed: false, analyst: '', analysisPlan: null, analysisStatus: '未开始' },
+      { id: 'f21', reqId: 'r5', name: '逾期风险名单预警', desc: '识别高逾期风险名单并预警', mainSys: 's_core', relSys: ['s_data'], priority: 'P2', ac: '预警名单准确率 ≥90%', analysisHours: 4, confirmed: false, analyst: '', analysisPlan: null, analysisStatus: '未开始' }
     ]
   }
 };

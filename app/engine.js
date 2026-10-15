@@ -545,6 +545,189 @@ globalThis.Engine = (function () {
     });
   }
 
+  /* ==========================================================================
+   * 数据看板：月度需求数量 / 部门维度 / 月度工作量（多维度）
+   * 口径说明：历史月份取 DB.reqArchive（MOCK 档案）；当前演示月由在跑需求实时折算并入。
+   * 本区块的所有函数只读，不写 DB，也不参与排期 / 门禁 / 达成度等既有计算。
+   * ========================================================================== */
+
+  /* 当前演示月（YYYY-MM） */
+  function demoMonth(DB) { return (DB.meta && DB.meta.demoDate || '').slice(0, 7); }
+
+  /* 把在跑需求折算成与档案同构的记录：工时取「功能点分析工时 / 开发任务工时 / 测试记录工时」，
+     主系统与实施人取出现次数最多者（用于按系统 / 按人员维度拆分） */
+  function liveRecords(DB) {
+    var m = demoMonth(DB);
+    var pick = function (counter) {
+      var best = '', n = -1;
+      Object.keys(counter).forEach(function (k) { if (counter[k] > n) { n = counter[k]; best = k; } });
+      return best;
+    };
+    return (DB.requirements || []).map(function (r) {
+      var fps = (DB.featurePoints || []).filter(function (f) { return f.reqId === r.id; });
+      var ids = fps.map(function (f) { return f.id; });
+      var ts = (DB.devTasks || []).filter(function (t) { return ids.indexOf(t.fpid) >= 0; });
+      var trs = (DB.testRecords || []).filter(function (x) { return ids.indexOf(x.fpid) >= 0; });
+      var sysC = {}, ownC = {};
+      fps.forEach(function (f) { if (f.mainSys) sysC[f.mainSys] = (sysC[f.mainSys] || 0) + 1; });
+      ts.forEach(function (t) { if (t.assignee) ownC[t.assignee] = (ownC[t.assignee] || 0) + 1; });
+      return {
+        id: r.id, code: r.code, month: m, source: r.source, priority: r.priority, stage: r.stage,
+        sys: pick(sysC), owner: pick(ownC), live: true,
+        ana: fps.reduce(function (s, f) { return s + (f.analysisHours || 0); }, 0),
+        dev: ts.reduce(function (s, t) { return s + (t.hours || 0); }, 0),
+        test: trs.reduce(function (s, x) { return s + (x.hours || 0); }, 0)
+      };
+    });
+  }
+
+  /* 看板总数据集 = 历史档案 + 在跑需求（当前月） */
+  function allRecords(DB) { return (DB.reqArchive || []).concat(liveRecords(DB)); }
+
+  /* 月份序列（升序，含当前演示月，去重） */
+  function monthList(DB) {
+    var set = {};
+    (DB.reqArchive || []).forEach(function (h) { if (h.month) set[h.month] = true; });
+    var m = demoMonth(DB);
+    if (m) set[m] = true;
+    return Object.keys(set).sort();
+  }
+
+  /* 月度需求数量变化：每月总数 + 环比 + 部门/优先级拆分 */
+  function monthlyReqCount(DB) {
+    var recs = allRecords(DB);
+    var prev = 0;
+    return monthList(DB).map(function (m) {
+      var list = recs.filter(function (x) { return x.month === m; });
+      var bySource = {}, byPriority = {};
+      list.forEach(function (x) {
+        bySource[x.source] = (bySource[x.source] || 0) + 1;
+        byPriority[x.priority] = (byPriority[x.priority] || 0) + 1;
+      });
+      var row = {
+        month: m, total: list.length, bySource: bySource, byPriority: byPriority,
+        delta: list.length - prev, prev: prev
+      };
+      prev = list.length;
+      return row;
+    });
+  }
+
+  /* 部门维度统计：总量 / 已验收 / 在途 / 优先级构成 / 三阶段工时 */
+  function deptStats(DB) {
+    var recs = allRecords(DB);
+    var names = [];
+    recs.forEach(function (x) { if (x.source && names.indexOf(x.source) < 0) names.push(x.source); });
+    var rows = names.map(function (s) {
+      var list = recs.filter(function (x) { return x.source === s; });
+      var count = function (p) { return list.filter(function (x) { return x.priority === p; }).length; };
+      var sum = function (k) { return list.reduce(function (a, x) { return a + (x[k] || 0); }, 0); };
+      var ana = sum('ana'), dev = sum('dev'), test = sum('test');
+      return {
+        source: s, total: list.length,
+        done: list.filter(function (x) { return x.stage === '已验收'; }).length,
+        doing: list.filter(function (x) { return x.stage !== '已验收'; }).length,
+        p0: count('P0'), p1: count('P1'), p2: count('P2'),
+        ana: ana, dev: dev, test: test, hours: ana + dev + test,
+        live: list.filter(function (x) { return x.live; }).length
+      };
+    });
+    return rows.sort(function (a, b) { return b.total - a.total || b.hours - a.hours; });
+  }
+
+  /* 工作量看板支持的维度 */
+  var WORKLOAD_DIMS = [
+    { key: 'stage', name: '按阶段', note: '分析 / 开发 / 测试 三阶段工时构成' },
+    { key: 'source', name: '按部门', note: '按需求提出业务部门拆分工时' },
+    { key: 'sys', name: '按系统', note: '按功能点主系统拆分工时' },
+    { key: 'owner', name: '按人员', note: '按主要实施人拆分工时' }
+  ];
+
+  /* 月度工作量序列：支持按 阶段 / 部门 / 系统 / 人员 四个维度拆分
+     返回 { dim, dimName, note, keys, colors, months:[{month, parts:[{key,hours}], total, delta}], max, grand } */
+  function workloadSeries(DB, dim) {
+    dim = dim || 'stage';
+    var meta = WORKLOAD_DIMS.filter(function (d) { return d.key === dim; })[0] || WORKLOAD_DIMS[0];
+    dim = meta.key;   // 未知维度统一回退到按阶段，避免出现无法归类的空键
+    var recs = allRecords(DB);
+    var months = monthList(DB);
+    var totalOf = function (x) { return (x.ana || 0) + (x.dev || 0) + (x.test || 0); };
+
+    /* 维度取键器 */
+    var catOf = function (x) {
+      if (dim === 'source') return x.source || '未指派部门';
+      if (dim === 'sys') return x.sys || '未指定系统';
+      if (dim === 'owner') return x.owner || '未指派人员';
+      return null;   // 阶段维度不需要分类键
+    };
+
+    /* 键集合（阶段维度固定三键；其余按出现顺序稳定排序） */
+    var keys = [];
+    if (dim === 'stage') {
+      keys = ['分析', '开发', '测试'];
+    } else {
+      recs.forEach(function (x) { var k = catOf(x); if (keys.indexOf(k) < 0) keys.push(k); });
+      keys.sort();
+    }
+    /* 颜色：阶段维度沿用与分析/开发/测试一致的色系；其余维度循环取板 */
+    var CYCLE = ['blue', 'amber', 'purple', 'green', 'teal', 'red'];
+    var colors = keys.map(function (k, i) {
+      if (dim === 'stage') return k === '分析' ? 'amber' : (k === '开发' ? 'blue' : 'purple');
+      return CYCLE[i % CYCLE.length];
+    });
+
+    var prevTotal = 0;
+    var rows = months.map(function (m) {
+      var list = recs.filter(function (x) { return x.month === m; });
+      var parts = keys.map(function (k, i) {
+        var hours;
+        if (dim === 'stage') {
+          hours = list.reduce(function (s, x) {
+            return s + (k === '分析' ? (x.ana || 0) : (k === '开发' ? (x.dev || 0) : (x.test || 0)));
+          }, 0);
+        } else {
+          hours = list.filter(function (x) { return catOf(x) === k; })
+            .reduce(function (s, x) { return s + totalOf(x); }, 0);
+        }
+        return { key: k, hours: hours, color: colors[i] };
+      });
+      var total = parts.reduce(function (s, p) { return s + p.hours; }, 0);
+      var row = { month: m, parts: parts, total: total, delta: total - prevTotal, prev: prevTotal };
+      prevTotal = total;
+      return row;
+    });
+
+    var max = 1, grand = 0;
+    rows.forEach(function (r) { if (r.total > max) max = r.total; grand += r.total; });
+    return {
+      dim: dim, dimName: meta.name, note: meta.note,
+      keys: keys, colors: colors, months: rows, max: max, grand: grand
+    };
+  }
+
+  /* 看板顶部 KPI */
+  function dashboardKPI(DB) {
+    var recs = allRecords(DB);
+    var months = monthList(DB);
+    var cur = months[months.length - 1] || '';
+    var prevM = months.length > 1 ? months[months.length - 2] : '';
+    var at = function (m) { return recs.filter(function (x) { return x.month === m; }).length; };
+    var sum = function (k) { return recs.reduce(function (a, x) { return a + (x[k] || 0); }, 0); };
+    var depts = deptStats(DB);
+    return {
+      total: recs.length,
+      months: months.length,
+      curMonth: cur, curCount: at(cur), prevMonth: prevM, prevCount: prevM ? at(prevM) : 0,
+      delta: at(cur) - (prevM ? at(prevM) : 0),
+      inFlight: (DB.requirements || []).filter(function (r) { return r.stage !== '已验收'; }).length,
+      done: recs.filter(function (x) { return x.stage === '已验收'; }).length,
+      deptCount: depts.length,
+      topDept: depts[0] ? depts[0].source : '—',
+      topDeptCount: depts[0] ? depts[0].total : 0,
+      ana: sum('ana'), dev: sum('dev'), test: sum('test'), hours: sum('ana') + sum('dev') + sum('test')
+    };
+  }
+
   return {
     DAY_CAP: DAY_CAP,
     DAY_MIN: DAY_MIN,
@@ -552,6 +735,15 @@ globalThis.Engine = (function () {
     STAGES: STAGES,
     stageBuckets: stageBuckets,
     dueRiskMap: dueRiskMap,
+    demoMonth: demoMonth,
+    liveRecords: liveRecords,
+    allRecords: allRecords,
+    monthList: monthList,
+    monthlyReqCount: monthlyReqCount,
+    deptStats: deptStats,
+    WORKLOAD_DIMS: WORKLOAD_DIMS,
+    workloadSeries: workloadSeries,
+    dashboardKPI: dashboardKPI,
     nextStage: nextStage,
     findById: findById,
     toDate: toDate,

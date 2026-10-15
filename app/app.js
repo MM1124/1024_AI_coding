@@ -24,10 +24,10 @@
     MGR: { key: 'MGR', name: '管理者', personId: 'm1', home: 'verify', desc: '阶段审批、变更审批、组织验收、目标达成评估、复盘（可兜底提交任一阶段）' }
   };
   var ROLE_VIEWS = {
-    PM: ['workbench', 'schedule', 'board', 'track', 'verify'],
-    DEV: ['schedule', 'board', 'track', 'verify'],
-    QA: ['schedule', 'board', 'track', 'verify'],
-    MGR: ['workbench', 'schedule', 'board', 'track', 'verify']
+    PM: ['workbench', 'schedule', 'board', 'dash', 'track', 'verify'],
+    DEV: ['schedule', 'board', 'dash', 'track', 'verify'],
+    QA: ['schedule', 'board', 'dash', 'track', 'verify'],
+    MGR: ['workbench', 'schedule', 'board', 'dash', 'track', 'verify']
   };
   var PERM = {
     PM: ['fp.edit', 'fp.confirm', 'sched.analysis', 'task.analysis', 'plan.manual', 'stage.submit',
@@ -51,10 +51,11 @@
     workbench: { idx: '1', name: '需求工作台', nav: '队列·拆解·阶段流转', desc: '需求队列列表 → 点击进入详情：导入拆解 → 人工确认锁定（基准不再解锁）→ 阶段门禁流转' },
     schedule: { idx: '2', name: '排期中心', nav: '三阶段计划·阶段流转', desc: '分析 / 开发 / 测试三阶段计划分离，排期推荐 + 计划完成收口 + 分角色阶段流转 + 手动添加计划' },
     board: { idx: '3', name: '计划看板', nav: '时间轴·插队·提醒', desc: '按人排期时间轴、需求插队影响、资源冲突、到期提醒、变更留痕' },
-    track: { idx: '4', name: '执行跟踪', nav: '状态·审批中心', desc: '任务/测试逐笔状态维护、阶段审批与变更审批中心' },
-    verify: { idx: '5', name: '验收评估', nav: '达成度·闭环', desc: '逐条验收对照既定标准、加权达成度、目标回溯、可追溯导出' }
+    dash: { idx: '4', name: '数据看板', nav: '月度趋势·部门·工作量', desc: '月度需求数量变化、需求提出部门维度统计、按月份与多维度查看分析/开发/测试工作量' },
+    track: { idx: '5', name: '执行跟踪', nav: '状态·审批中心', desc: '任务/测试逐笔状态维护、阶段审批与变更审批中心' },
+    verify: { idx: '6', name: '验收评估', nav: '达成度·闭环', desc: '逐条验收对照既定标准、加权达成度、目标回溯、可追溯导出' }
   };
-  var NAV_ORDER = ['workbench', 'schedule', 'board', 'track', 'verify'];
+  var NAV_ORDER = ['workbench', 'schedule', 'board', 'dash', 'track', 'verify'];
 
   var DB = null;
   var UI = {
@@ -64,6 +65,7 @@
     verifyReqId: 'r2',
     role: 'PM',
     reqOpen: false,    // 需求工作台：false = 需求队列列表页，true = 某条需求的详情页
+    dashDim: 'stage',  // 数据看板 · 月度工作量拆分维度：stage / source / sys / owner
     parseTimer: null,
     pick: {},
     crDraft: null,     // 需求变更单编辑器草稿
@@ -164,6 +166,11 @@
   function scoreBar(v, cls) {
     var c = v >= 90 ? 'green' : (v >= 75 ? 'blue' : (v >= 60 ? 'amber' : 'red'));
     return '<div class="bar ' + (cls || '') + '" style="flex:1"><i style="width:' + Math.max(0, Math.min(100, v)) + '%;background:var(--' + c + ')"></i></div>';
+  }
+  /* 进度条（区别于评分条）：0% 灰 / 进行中蓝 / 100% 绿 —— 不用红色，避免把「未完成」误读成「异常」 */
+  function progBar(v) {
+    var fill = v >= 100 ? 'var(--green)' : (v > 0 ? 'var(--blue)' : 'var(--line-2)');
+    return '<div class="bar" style="flex:1"><i style="width:' + Math.max(0, Math.min(100, v)) + '%;background:' + fill + '"></i></div>';
   }
   /* 手动添加计划：不同角色可登记的计划类型不同 */
   function manualTypes() {
@@ -356,9 +363,9 @@
         (k.overdue ? tag('已超期', 'red') : (k.soon ? tag('临近到期', 'amber') : '')) +
         '</div>' +
         '<div class="rc-prog">' +
-        '<div class="bar-row"><span class="lbl">分析</span>' + scoreBar(p.anaProgress) + '<span class="val">' + p.anaProgress + '%</span></div>' +
-        '<div class="bar-row"><span class="lbl">开发</span>' + scoreBar(p.devProgress) + '<span class="val">' + p.devProgress + '%</span></div>' +
-        '<div class="bar-row"><span class="lbl">测试</span>' + scoreBar(p.testProgress) + '<span class="val">' + p.testProgress + '%</span></div>' +
+        '<div class="bar-row"><span class="lbl">分析</span>' + progBar(p.anaProgress) + '<span class="val">' + p.anaProgress + '%</span></div>' +
+        '<div class="bar-row"><span class="lbl">开发</span>' + progBar(p.devProgress) + '<span class="val">' + p.devProgress + '%</span></div>' +
+        '<div class="bar-row"><span class="lbl">测试</span>' + progBar(p.testProgress) + '<span class="val">' + p.testProgress + '%</span></div>' +
         '</div>' +
         '<div class="rc-foot">' + foot +
         '<button class="btn mini" data-act="pick-req" data-id="' + r.id + '">查看详情 ›</button></div></div>';
@@ -797,8 +804,8 @@
         '<div style="flex:1"><div class="q-t">' + esc(r.code) + ' · ' + esc(r.title) + '</div>' +
         '<div class="sub">' + priTag(r.priority) + ' ' + stageTag(r.stage) +
         ' · 功能点 ' + scope.fpCount + ' 个 · 任务 ' + scope.taskCount + ' 条 · 涉及 ' + scope.people.length + ' 人</div>' +
-        '<div class="bar-row"><span class="lbl">开发</span>' + scoreBar(pr.devProgress) + '<span class="val">' + pr.devProgress + '%</span>' +
-        '<span class="lbl">测试</span>' + scoreBar(pr.testProgress) + '<span class="val">' + pr.testProgress + '%</span></div></div></div>';
+        '<div class="bar-row"><span class="lbl">开发</span>' + progBar(pr.devProgress) + '<span class="val">' + pr.devProgress + '%</span>' +
+        '<span class="lbl">测试</span>' + progBar(pr.testProgress) + '<span class="val">' + pr.testProgress + '%</span></div></div></div>';
     }).join('');
 
     var imp = DB.lastInsertImpact;
@@ -893,7 +900,253 @@
       }).join('') + '</div></div>';
   }
 
-  /* ======================= 视图 4：执行跟踪 ======================= */
+  /* ======================= 视图 4：数据看板 ======================= */
+  /* 三张看板：① 月度需求数量变化 ② 需求提出部门维度统计 ③ 月度分析/开发/测试工作量（四维度切换）
+     全部用零依赖 SVG / CSS 绘制，不引入任何图表库 */
+
+  var CHART_PALETTE = ['blue', 'amber', 'purple', 'green', 'teal', 'red'];
+  function chartVar(k) { return 'var(--' + k + ')'; }
+  function svgEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]; }); }
+
+  /* 轴刻度取整：返回 { step, top }，保证刻度是 1/2/3/5/7.5/10 × 10^n 这类整齐值 */
+  function niceAxis(max, ticks) {
+    ticks = ticks || 4;
+    var raw = Math.max(1, max) / ticks;
+    var mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+    var norm = raw / mag;
+    var mul = norm <= 1 ? 1 : (norm <= 2 ? 2 : (norm <= 3 ? 3 : (norm <= 5 ? 5 : (norm <= 7.5 ? 7.5 : 10))));
+    var step = mul * mag;
+    return { step: step, top: Math.ceil(max / step) * step };
+  }
+  function axisTicks(ax) {
+    var out = [];
+    for (var v = 0; v <= ax.top + 1e-9; v += ax.step) out.push(Math.round(v * 100) / 100);
+    return out;
+  }
+  /* 环比变化标记：上升蓝 / 下降琥珀 / 持平灰（只表达方向，不带好坏判断） */
+  function deltaTag(v, unit) {
+    if (!v) return '<span class="delta flat">持平</span>';
+    return '<span class="delta ' + (v > 0 ? 'up' : 'down') + '">' + (v > 0 ? '+' : '') + v + (unit || '') + '</span>';
+  }
+  /* 维度键 → 可读名称（键不是已知 id 时原样返回，兜底分组如「未指派人员」不会被误映射） */
+  function dimLabel(dim, key) {
+    if (dim === 'owner') {
+      var p = (DB.people || []).filter(function (x) { return x.id === key; })[0];
+      return p ? p.name : key;
+    }
+    if (dim === 'sys') {
+      var s = (DB.systems || []).filter(function (x) { return x.id === key; })[0];
+      return s ? s.name : key;
+    }
+    return key;
+  }
+
+  /* ---------- 图 1：月度需求数量变化（柱 + 趋势折线，本月高亮） ---------- */
+  function reqTrendSVG() {
+    var rows = E.monthlyReqCount(DB);
+    if (!rows.length) return '<div class="empty">暂无数据</div>';
+    var W = 680, H = 236, PL = 40, PR = 18, PT = 30, PB = 42;
+    var pw = W - PL - PR, ph = H - PT - PB;
+    var max = 1;
+    rows.forEach(function (r) { if (r.total > max) max = r.total; });
+    var ax = niceAxis(max, 3);
+    var y = function (v) { return PT + ph - (v / ax.top) * ph; };
+    var slot = pw / rows.length;
+    var bw = Math.min(38, slot * 0.48);
+    var g = [];
+
+    axisTicks(ax).forEach(function (v) {
+      var yy = y(v);
+      g.push('<line class="grid-line" x1="' + PL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + yy.toFixed(1) + '"/>');
+      g.push('<text class="axis-t" x="' + (PL - 9) + '" y="' + (yy + 4).toFixed(1) + '" text-anchor="end">' + v + '</text>');
+    });
+
+    var cxOf = function (i) { return PL + slot * i + slot / 2; };
+    rows.forEach(function (r, i) {
+      var cx = cxOf(i), x = cx - bw / 2;
+      var h = Math.max(1.5, (r.total / ax.top) * ph);
+      var yy = PT + ph - h;
+      var cur = i === rows.length - 1;
+      g.push('<rect class="sv-bar" x="' + x.toFixed(1) + '" y="' + yy.toFixed(1) + '" width="' + bw.toFixed(1) +
+        '" height="' + h.toFixed(1) + '" rx="5" fill="' + chartVar(cur ? 'amber-line' : 'blue') + '" opacity="' + (cur ? 1 : 0.82) + '">' +
+        '<title>' + r.month + ' 新增 ' + r.total + ' 条</title></rect>');
+      g.push('<text class="pt-t" x="' + cx.toFixed(1) + '" y="' + (yy - 7).toFixed(1) + '" text-anchor="middle">' + r.total + '</text>');
+    });
+
+    var pts = rows.map(function (r, i) { return [cxOf(i), y(r.total)]; });
+    g.push('<polyline fill="none" stroke="' + chartVar('teal') + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="' +
+      pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ') + '"/>');
+    pts.forEach(function (p) {
+      g.push('<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3.4" fill="#fff" stroke="' + chartVar('teal') + '" stroke-width="2"/>');
+    });
+
+    rows.forEach(function (r, i) {
+      var cx = cxOf(i), cur = i === rows.length - 1;
+      g.push('<text class="axis-t" x="' + cx.toFixed(1) + '" y="' + (PT + ph + 20) + '" text-anchor="middle"' +
+        (cur ? ' style="fill:var(--amber);font-weight:500"' : '') + '>' + Number(r.month.slice(5)) + '月</text>');
+      if (i === 0) g.push('<text class="axis-t" x="' + cx.toFixed(1) + '" y="' + (PT + ph + 34) + '" text-anchor="middle">' + r.month.slice(0, 4) + ' 年</text>');
+    });
+
+    return '<div class="chart-wrap"><svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img">' + g.join('') + '</svg></div>' +
+      '<div class="legend2">' +
+      legendItem('blue', '每月新增需求数') + legendItem('teal', '趋势折线') + legendItem('amber-line', '本月（' + Number(rows[rows.length - 1].month.slice(5)) + ' 月）') +
+      '</div>';
+  }
+  function legendItem(color, text, extra) {
+    return '<span class="lg2"><i style="background:' + chartVar(color) + '"></i>' + esc(text) + (extra ? ' <b>' + esc(extra) + '</b>' : '') + '</span>';
+  }
+
+  /* ---------- 图 2：需求提出部门维度分布（横向占比条） ---------- */
+  function deptBoard() {
+    var rows = E.deptStats(DB);
+    if (!rows.length) return '<div class="empty">暂无数据</div>';
+    var max = rows[0].total || 1;
+    return '<div class="dept-list">' + rows.map(function (r) {
+      return '<div class="dept-row">' +
+        '<div class="dr-name" title="' + esc(r.source) + '">' + esc(r.source) +
+        '<div class="dr-sub">已验收 ' + r.done + ' · 在途 ' + r.doing + '</div></div>' +
+        '<div class="dr-track" title="' + esc(r.source) + ' 共 ' + r.total + ' 条"><i style="width:' + Math.max(3, Math.round(r.total / max * 100)) + '%"></i></div>' +
+        '<div class="dr-num"><b>' + r.total + '</b> 条' +
+        '<div class="dr-sub">P0 ' + r.p0 + ' · P1 ' + r.p1 + ' · P2 ' + r.p2 + '</div></div>' +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  /* ---------- 图 3：月度工作量（堆叠柱，支持四维度切换） ---------- */
+  function workStackSVG(dim) {
+    var s = E.workloadSeries(DB, dim);
+    if (!s.months.length) return '<div class="empty">暂无数据</div>';
+    var W = 680, H = 258, PL = 46, PR = 18, PT = 28, PB = 44;
+    var pw = W - PL - PR, ph = H - PT - PB;
+    var ax = niceAxis(s.max, 4);
+    var y = function (v) { return PT + ph - (v / ax.top) * ph; };
+    var slot = pw / s.months.length;
+    var bw = Math.min(42, slot * 0.5);
+    var g = [];
+
+    axisTicks(ax).forEach(function (v) {
+      var yy = y(v);
+      g.push('<line class="grid-line" x1="' + PL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + yy.toFixed(1) + '"/>');
+      g.push('<text class="axis-t" x="' + (PL - 9) + '" y="' + (yy + 4).toFixed(1) + '" text-anchor="end">' + v + '</text>');
+    });
+
+    s.months.forEach(function (m, i) {
+      var cx = PL + slot * i + slot / 2, x = cx - bw / 2;
+      var acc = 0;
+      m.parts.forEach(function (p) {
+        if (!p.hours) return;
+        var y1 = y(acc + p.hours), y0 = y(acc);
+        var hh = Math.max(1, y0 - y1 - 1);
+        g.push('<rect class="sv-bar" x="' + x.toFixed(1) + '" y="' + (y1 + 0.5).toFixed(1) + '" width="' + bw.toFixed(1) +
+          '" height="' + hh.toFixed(1) + '" fill="' + chartVar(p.color) + '">' +
+          '<title>' + esc(m.month) + ' · ' + esc(dimLabel(dim, p.key)) + ' ' + p.hours + 'h</title></rect>');
+        acc += p.hours;
+      });
+      var top = y(acc);
+      g.push('<text class="pt-t" x="' + cx.toFixed(1) + '" y="' + (top - 7).toFixed(1) + '" text-anchor="middle">' + acc + 'h</text>');
+      g.push('<text class="axis-t" x="' + cx.toFixed(1) + '" y="' + (PT + ph + 20) + '" text-anchor="middle"' +
+        (i === s.months.length - 1 ? ' style="fill:var(--amber);font-weight:500"' : '') + '>' + Number(m.month.slice(5)) + '月</text>');
+      if (i === 0) g.push('<text class="axis-t" x="' + cx.toFixed(1) + '" y="' + (PT + ph + 34) + '" text-anchor="middle">' + m.month.slice(0, 4) + ' 年</text>');
+    });
+
+    /* 各维度累计 */
+    var totals = s.keys.map(function (k) { return { key: k, hours: 0 }; });
+    s.months.forEach(function (m) {
+      m.parts.forEach(function (p, i) { totals[i].hours += p.hours; });
+    });
+
+    return '<div class="chart-wrap"><svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img">' + g.join('') + '</svg></div>' +
+      '<div class="legend2">' + totals.map(function (t, i) {
+        return legendItem(s.colors[i], dimLabel(dim, t.key), t.hours + 'h');
+      }).join('') + '</div>';
+  }
+
+  /* ---------- 月度变化明细表（逐月 × 维度 × 环比） ---------- */
+  function workTable(dim) {
+    var s = E.workloadSeries(DB, dim);
+    var head = '<tr><th>月份</th>' + s.keys.map(function (k) { return '<th class="num">' + esc(dimLabel(dim, k)) + '</th>'; }).join('') +
+      '<th class="num">合计</th><th class="num">环比</th></tr>';
+    var body = s.months.map(function (m, i) {
+      return '<tr><td>' + esc(m.month) + (i === s.months.length - 1 ? ' <span class="tag amber">本月</span>' : '') + '</td>' +
+        m.parts.map(function (p) { return '<td class="num">' + (p.hours || '—') + '</td>'; }).join('') +
+        '<td class="num"><b>' + m.total + '</b></td>' +
+        '<td class="num">' + deltaTag(m.delta, 'h') + '</td></tr>';
+    }).join('');
+    return '<div class="table-wrap"><table class="mini-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+  }
+
+  function vDash() {
+    var kpi = E.dashboardKPI(DB);
+    var dim = UI.dashDim || 'stage';
+    var dimMeta = (E.WORKLOAD_DIMS || []).filter(function (d) { return d.key === dim; })[0] || E.WORKLOAD_DIMS[0];
+    var rows = E.monthlyReqCount(DB);
+    var peak = rows.reduce(function (a, r) { return r.total > a.total ? r : a; }, { total: 0, month: '—' });
+    var depts = E.deptStats(DB);
+    var curM = Number((kpi.curMonth || '').slice(5));
+    var work = E.workloadSeries(DB, dim);
+    var workLast = work.months[work.months.length - 1] || { delta: 0 };
+
+    /* KPI 卡 */
+    var kpis = [
+      { k: '需求总数（近 ' + kpi.months + ' 个月）', v: kpi.total, u: '条', c: 'blue', c2: '覆盖 ' + kpi.deptCount + ' 个提出部门 · 累计 ' + kpi.hours + 'h 工时' },
+      { k: '本月新增（' + curM + ' 月）', v: kpi.curCount, u: '条', c: 'amber', c2: '环比上月 ' + deltaTag(kpi.delta, ' 条') },
+      { k: '在途需求', v: kpi.inFlight, u: '条', c: 'purple', c2: '未走到已验收，需继续推进' },
+      { k: '已验收', v: kpi.done, u: '条', c: 'green', c2: '占总量 ' + (kpi.total ? Math.round(kpi.done / kpi.total * 100) : 0) + '%' },
+      { k: '提出最多部门', v: kpi.topDeptCount, u: '条', c: 'teal', c2: esc(kpi.topDept) }
+    ];
+
+    return '<div class="alert blue"><div>' + roleTag() + ' · <b>数据看板</b>：月度需求数量变化、需求提出部门维度统计，以及按月、多维度查看分析 / 开发 / 测试工作量。' +
+      '<div class="sub">历史月份为 MOCK 档案数据，本月（' + esc(kpi.curMonth) + '）由在跑需求的任务与工时实时折算并入；本页只读，不影响排期与验收口径。</div></div></div>' +
+
+      '<div class="grid c5" style="margin-top:14px">' + kpis.map(function (x) {
+        return '<div class="dash-kpi" style="--kc:var(--' + x.c + ')">' +
+          '<div class="dk-k">' + esc(x.k) + '</div>' +
+          '<div class="dk-v">' + x.v + '<small>' + esc(x.u) + '</small></div>' +
+          '<div class="dk-c">' + x.c2 + '</div></div>';
+      }).join('') + '</div>' +
+
+      /* ① 月度需求数量 */
+      '<div class="card"><div class="card-h"><h2>月度需求数量变化</h2>' +
+      '<span class="hint">峰值 ' + esc(peak.month) + ' · ' + peak.total + ' 条；本月 ' + kpi.curCount + ' 条，环比 ' +
+      (kpi.delta > 0 ? '增加 ' + kpi.delta : (kpi.delta < 0 ? '减少 ' + Math.abs(kpi.delta) : '持平')) + ' 条</span></div>' +
+      reqTrendSVG() +
+      '<div class="table-wrap" style="margin-top:12px"><table class="mini-table"><thead><tr><th>月份</th><th class="num">新增需求</th>' +
+      '<th class="num">环比</th><th class="num">P0</th><th class="num">P1</th><th class="num">P2</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr><td>' + esc(r.month) + '</td><td class="num"><b>' + r.total + '</b></td>' +
+          '<td class="num">' + deltaTag(r.delta, '') + '</td>' +
+          '<td class="num">' + (r.byPriority.P0 || '—') + '</td>' +
+          '<td class="num">' + (r.byPriority.P1 || '—') + '</td>' +
+          '<td class="num">' + (r.byPriority.P2 || '—') + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>' +
+
+      /* ② 部门维度 */
+      '<div class="card"><div class="card-h"><h2>需求提出部门维度统计</h2>' +
+      '<span class="hint">共 ' + depts.length + ' 个部门 · 按需求条数排序（条内为累计工时构成）</span></div>' +
+      deptBoard() +
+      '<div class="table-wrap" style="margin-top:12px"><table class="mini-table"><thead><tr><th>部门</th>' +
+      '<th class="num">需求数</th><th class="num">已验收</th><th class="num">在途</th><th class="num">P0/P1/P2</th>' +
+      '<th class="num">分析</th><th class="num">开发</th><th class="num">测试</th><th class="num">合计</th></tr></thead><tbody>' +
+      depts.map(function (d) {
+        return '<tr><td>' + esc(d.source) + '</td><td class="num"><b>' + d.total + '</b></td>' +
+          '<td class="num">' + d.done + '</td><td class="num">' + d.doing + '</td>' +
+          '<td class="num">' + d.p0 + '/' + d.p1 + '/' + d.p2 + '</td>' +
+          '<td class="num">' + d.ana + 'h</td><td class="num">' + d.dev + 'h</td><td class="num">' + d.test + 'h</td>' +
+          '<td class="num"><b>' + d.hours + 'h</b></td></tr>';
+      }).join('') + '</tbody></table></div></div>' +
+
+      /* ③ 月度工作量（多维度） */
+      '<div class="card"><div class="card-h"><h2>月度分析 / 开发 / 测试工作量</h2>' +
+      '<div class="btn-group">' + E.WORKLOAD_DIMS.map(function (d) {
+        return '<button class="btn' + (d.key === dim ? ' on' : '') + '" data-act="dash-dim" data-id="' + d.key + '">' + esc(d.name) + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="note-line">当前维度：<b>' + esc(dimMeta.name) + '</b> —— ' + esc(dimMeta.note) +
+      '；累计 ' + work.grand + 'h，最近一月环比 ' + deltaTag(workLast.delta, 'h') + '</div>' +
+      workStackSVG(dim) +
+      workTable(dim) + '</div>';
+  }
+
+  /* ======================= 视图 5：执行跟踪 ======================= */
   function vTrack() {
     var pending = (DB.milestones || []).filter(function (m) { return m.status === '待审批'; });
     var pendingCr = (DB.changeRequests || []).filter(function (c) { return c.status === '待审批'; });
@@ -919,9 +1172,9 @@
         (g.ok ? tag('门禁通过', 'green') : tag('门禁未通过', 'amber')) +
         '<span class="spacer"></span><span class="muted">功能点 ' + p.fpDevDone + '/' + p.fpTotal + ' · 任务 ' + p.taskDone + '/' + p.taskTotal +
         ' · 测试 ' + p.testDone + '/' + p.testTotal + '</span></div>' +
-        '<div class="bar-row"><span class="lbl">分析完成</span>' + scoreBar(p.anaProgress) + '<span class="val">' + p.anaProgress + '%</span></div>' +
-        '<div class="bar-row"><span class="lbl">开发完成</span>' + scoreBar(p.devProgress) + '<span class="val">' + p.devProgress + '%</span></div>' +
-        '<div class="bar-row"><span class="lbl">测试完成</span>' + scoreBar(p.testProgress) + '<span class="val">' + p.testProgress + '%</span></div></div>';
+        '<div class="bar-row"><span class="lbl">分析完成</span>' + progBar(p.anaProgress) + '<span class="val">' + p.anaProgress + '%</span></div>' +
+        '<div class="bar-row"><span class="lbl">开发完成</span>' + progBar(p.devProgress) + '<span class="val">' + p.devProgress + '%</span></div>' +
+        '<div class="bar-row"><span class="lbl">测试完成</span>' + progBar(p.testProgress) + '<span class="val">' + p.testProgress + '%</span></div></div>';
     }).join('');
 
     var msRows = (DB.milestones || []).slice().sort(function (a, b) {
@@ -1044,8 +1297,8 @@
       (gate.ok && nextStage(req.stage) === '已验收' ? tag('可结项验收', 'green') : tag('阶段门禁：' + (gate.ok ? '通过' : '未通过'), gate.ok ? 'green' : 'amber')) + '</div></div>' +
       '<div class="bar-row"><span class="lbl">加权达成度</span>' + scoreBar(ach.rate) + '<span class="val">' + ach.rate + '</span></div>' +
       '<div class="bar-row"><span class="lbl">已验收加权均值</span>' + scoreBar(ach.verifiedRate) + '<span class="val">' + ach.verifiedRate + '</span></div>' +
-      '<div class="bar-row"><span class="lbl">开发完成进度</span>' + scoreBar(ach.devProgress) + '<span class="val">' + ach.devProgress + '%</span></div>' +
-      '<div class="bar-row"><span class="lbl">测试完成进度</span>' + scoreBar(ach.testProgress) + '<span class="val">' + ach.testProgress + '%</span></div>' +
+      '<div class="bar-row"><span class="lbl">开发完成进度</span>' + progBar(ach.devProgress) + '<span class="val">' + ach.devProgress + '%</span></div>' +
+      '<div class="bar-row"><span class="lbl">测试完成进度</span>' + progBar(ach.testProgress) + '<span class="val">' + ach.testProgress + '%</span></div>' +
       '<div class="sub">口径：达成度 = Σ(功能点权重 × 得分) / Σ权重；未验收功能点按 0 分计入，避免「做完即达标」的失真。</div></div>';
 
     var accRows = ach.items.map(function (x) {
@@ -1190,7 +1443,7 @@
   }
 
   /* ======================= 渲染与事件 ======================= */
-  var VIEWS = { workbench: vWorkbench, schedule: vSchedule, board: vBoard, track: vTrack, verify: vVerify };
+  var VIEWS = { workbench: vWorkbench, schedule: vSchedule, board: vBoard, dash: vDash, track: vTrack, verify: vVerify };
 
   function renderNav() {
     var order = NAV_ORDER.filter(canView);
@@ -1325,6 +1578,7 @@
     var id = el.dataset.id;
 
     if (act === 'role-matrix') { openRoleMatrix(); return; }
+    if (act === 'dash-dim') { UI.dashDim = id || 'stage'; render(); return; }
     if (act === 'pick-req') {
       UI.reqId = id; UI.schedReqId = id; UI.verifyReqId = id; UI.reqOpen = true; render(); return;
     }
@@ -2529,6 +2783,17 @@
     DB.featurePoints.forEach(function (f) { if (!f.analysisStatus) f.analysisStatus = '未开始'; });
     UI.role = ROLES[DB.meta.currentRole] ? DB.meta.currentRole : 'PM';
     UI.view = curRole().home;
+    /* 深链：支持 #视图名 / #需求id 直达（越权自动回落本角色首页） */
+    try {
+      var h = (location.hash || '').replace('#', '');
+      if (h) {
+        if (VIEWS[h] && canView(h)) UI.view = h;
+        else {
+          var hr = reqById(h);
+          if (hr) { UI.view = 'workbench'; UI.reqOpen = true; UI.reqId = hr.id; UI.schedReqId = hr.id; UI.verifyReqId = hr.id; }
+        }
+      }
+    } catch (e) { }
 
     document.addEventListener('click', function (e) {
       if (e.target.closest && e.target.closest('.tab')) { onTabClick(e); return; }

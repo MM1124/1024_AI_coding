@@ -86,7 +86,11 @@ const db8 = DB();
 ok('关联系统 4 个', db8.systems.length === 4);
 ok('人员 9 人（含 2 名测试工程师，用于多人测试排期）', db8.people.length === 9);
 ok('测试工程师 2 人（测试排期不默认固定一人）', db8.people.filter(p => p.role === 'QA').length === 2);
-ok('需求 4 条', db8.requirements.length === 4);
+ok('需求 5 条（含 1 条全新未拆解需求 r5）', db8.requirements.length === 5, String(db8.requirements.length));
+ok('r5 尚未分析：无功能点 / 未确认 / 未拆解', db8.requirements.some(r => r.id === 'r5' && r.aiDone === false && r.parsed === false),
+  JSON.stringify(db8.requirements.filter(r => r.id === 'r5')[0] || {}));
+ok('r5 提供预置解析结果（可走完整导入流程）', (db8.parsePresets.r5 || []).length === 5,
+  String((db8.parsePresets.r5 || []).length));
 ok('开发任务 9 条 / 测试记录 9 条（1:1 派生）', db8.devTasks.length === 9 && db8.testRecords.length === 9 &&
   db8.devTasks.every(t => db8.testRecords.filter(r => r.taskId === t.id).length === 1));
 
@@ -282,9 +286,11 @@ ok('开发桶平均进度：分析 100 / 开发 13 / 测试 13',
   bkDev.ana === 100 && bkDev.dev === 13 && bkDev.test === 13,
   [bkDev.ana, bkDev.dev, bkDev.test].join('/'));
 const bkAna = buckets.filter(b => b.stage === '分析')[0];
-ok('分析桶含 2 条（r1 / r4）且进度均为 0（未拆解未确认）',
-  bkAna.count === 2 && bkAna.ana === 0 && bkAna.dev === 0 && bkAna.test === 0,
-  bkAna.count + ' / ' + bkAna.ana);
+const anaExp = dbBk.requirements.filter(r => r.stage === '分析').length;
+ok('分析桶条数与数据一致（r1 / r4 / r5）且进度均为 0（未拆解未确认）',
+  bkAna.count === anaExp && bkAna.ana === 0 && bkAna.dev === 0 && bkAna.test === 0,
+  bkAna.count + ' vs ' + anaExp);
+ok('分析桶含全新未拆解需求 r5（无功能点）', bkAna.reqs.some(r => r.id === 'r5'));
 ok('已验收桶不计入门禁未过 / 临近到期',
   buckets.filter(b => b.stage === '已验收').every(b => b.blocked === 0 && b.soon === 0 && b.overdue === 0));
 
@@ -299,6 +305,88 @@ const dbFin = DB();
 dbFin.devTasks.forEach(t => { t.status = '已完成'; });
 dbFin.testRecords.forEach(r => { r.status = '已完成'; });
 ok('全部任务完成后不再有到期风险', Object.keys(E.dueRiskMap(dbFin)).length === 0);
+
+console.log('\n[19] 数据看板（月度趋势 / 部门维度 / 多维度工作量）');
+const dbD = DB();
+const months = E.monthList(dbD);
+ok('月份序列为 6 个月且升序去重', months.length === 6 && months.join(',') === months.slice().sort().join(','), months.join(','));
+ok('月份序列含当前演示月', months[months.length - 1] === E.demoMonth(dbD), months[months.length - 1] + ' vs ' + E.demoMonth(dbD));
+
+const live = E.liveRecords(dbD);
+ok('在跑需求逐条折算为记录（条数 = 需求数）', live.length === dbD.requirements.length, String(live.length));
+ok('未拆解需求（r5）折算后三阶段工时均为 0 且无主系统',
+  live.some(x => x.id === 'r5' && x.ana === 0 && x.dev === 0 && x.test === 0 && !x.sys && !x.owner));
+ok('在跑需求全部落在演示月', live.every(x => x.month === E.demoMonth(dbD)));
+ok('在跑记录含三阶段工时（分析 / 开发 / 测试）', live.every(x => x.ana >= 0 && x.dev >= 0 && x.test >= 0));
+const liveR2 = live.filter(x => x.id === 'r2')[0];
+ok('r2 折算：分析工时 = 功能点分析工时合计',
+  liveR2.ana === dbD.featurePoints.filter(f => f.reqId === 'r2').reduce((s, f) => s + f.analysisHours, 0), String(liveR2.ana));
+ok('r2 折算：开发工时 = 开发任务工时合计',
+  liveR2.dev === dbD.devTasks.filter(t => t.reqId === 'r2').reduce((s, t) => s + t.hours, 0), String(liveR2.dev));
+ok('r2 折算：测试工时 = 测试记录工时合计',
+  liveR2.test === dbD.testRecords.filter(t => t.reqId === 'r2').reduce((s, t) => s + t.hours, 0), String(liveR2.test));
+ok('r2 折算主系统 / 实施人取出现最多者', !!liveR2.sys && !!liveR2.owner, liveR2.sys + '/' + liveR2.owner);
+ok('总数据集 = 档案 + 在跑', E.allRecords(dbD).length === (dbD.reqArchive || []).length + live.length);
+
+const mc = E.monthlyReqCount(dbD);
+ok('月度序列每月总数合计 = 总数据集条数', mc.reduce((s, r) => s + r.total, 0) === E.allRecords(dbD).length);
+ok('月度环比链正确（本月 - 上月）', mc.every((r, i) => r.delta === r.total - (i ? mc[i - 1].total : 0)),
+  JSON.stringify(mc.map(r => r.month + ':' + r.total + '(' + r.delta + ')')));
+ok('月度按优先级拆分合计等于当月总数', mc.every(r => (r.byPriority.P0 || 0) + (r.byPriority.P1 || 0) + (r.byPriority.P2 || 0) === r.total));
+
+const dept = E.deptStats(dbD);
+ok('部门统计 6 个部门', dept.length === 6, String(dept.length));
+ok('部门统计条数合计 = 总数据集条数', dept.reduce((s, d) => s + d.total, 0) === E.allRecords(dbD).length);
+ok('部门已验收 + 在途 = 部门总数', dept.every(d => d.done + d.doing === d.total));
+ok('部门三阶段工时合计自洽', dept.every(d => d.ana + d.dev + d.test === d.hours));
+ok('部门按需求条数降序', dept.every((d, i) => i === 0 || dept[i - 1].total >= d.total));
+const cc = dept.filter(d => d.source === '信用卡中心')[0];
+ok('信用卡中心为提出最多的部门（7 条）', cc && cc.total === 7 && dept[0].source === '信用卡中心', cc && String(cc.total));
+
+ok('工作量维度有 4 个（阶段 / 部门 / 系统 / 人员）',
+  E.WORKLOAD_DIMS.length === 4 && E.WORKLOAD_DIMS.map(d => d.key).join(',') === 'stage,source,sys,owner',
+  E.WORKLOAD_DIMS.map(d => d.key).join(','));
+const wStage2 = E.workloadSeries(dbD, 'stage');
+ok('阶段维度三键固定为 分析/开发/测试', wStage2.keys.join(',') === '分析,开发,测试', wStage2.keys.join(','));
+ok('阶段维度配色与阶段主题一致（amber/blue/purple）', wStage2.colors.join(',') === 'amber,blue,purple', wStage2.colors.join(','));
+ok('每月分段工时合计 = 该月合计', wStage2.months.every(m => m.parts.reduce((s, p) => s + p.hours, 0) === m.total));
+ok('月度环比链正确', wStage2.months.every((m, i) => m.delta === m.total - (i ? wStage2.months[i - 1].total : 0)));
+ok('max 等于各月合计最大值', wStage2.max === Math.max(...wStage2.months.map(m => m.total)), String(wStage2.max));
+ok('grand 等于各月合计之和', wStage2.grand === wStage2.months.reduce((s, m) => s + m.total, 0));
+const grands = ['stage', 'source', 'sys', 'owner'].map(d => E.workloadSeries(dbD, d).grand);
+ok('四个维度的工时总量一致（换维度不丢数）', grands.every(g => g === grands[0]), grands.join('/'));
+const wOwn2 = E.workloadSeries(dbD, 'owner');
+ok('人员维度键为人员 id 或未指派兜底', wOwn2.keys.every(k => k === '未指派人员' || /^p\d+$/.test(k)), wOwn2.keys.join(','));
+const wSys2 = E.workloadSeries(dbD, 'sys');
+ok('系统维度键为系统 id 或未指定兜底', wSys2.keys.every(k => k === '未指定系统' || /^s_/.test(k)), wSys2.keys.join(','));
+ok('未知维度回退为按阶段', E.workloadSeries(dbD, 'nope').dim === 'stage');
+
+const kpi = E.dashboardKPI(dbD);
+ok('KPI 需求总数 = 总数据集条数', kpi.total === E.allRecords(dbD).length);
+ok('KPI 本月条数 = 在跑需求数（5 条）', kpi.curCount === 5 && kpi.curMonth === E.demoMonth(dbD), kpi.curCount + '@' + kpi.curMonth);
+ok('KPI 环比 = 本月 - 上月', kpi.delta === kpi.curCount - kpi.prevCount, kpi.delta + ' = ' + kpi.curCount + '-' + kpi.prevCount);
+ok('KPI 累计工时 = 三阶段之和', kpi.hours === kpi.ana + kpi.dev + kpi.test, kpi.hours + ' = ' + kpi.ana + '+' + kpi.dev + '+' + kpi.test);
+ok('KPI 部门数 = 部门统计条数', kpi.deptCount === dept.length);
+ok('KPI 在途需求与看板口径一致（非已验收）',
+  kpi.inFlight === dbD.requirements.filter(r => r.stage !== '已验收').length, String(kpi.inFlight));
+
+/* 隔离性：看板数据不得参与任何既有计算（排期 / 门禁 / 达成度 / 提醒） */
+const dbIso = DB();
+const beforeIso = {
+  prog: JSON.stringify(E.progress(dbIso, 'r2')),
+  gate: JSON.stringify(E.stageGate(dbIso, 'r2')),
+  goal: E.goalAchievement(dbIso, 'g1').rate,
+  rem: E.reminders(dbIso).length,
+  load: JSON.stringify(E.personLoad(dbIso, 'p2'))
+};
+dbIso.reqArchive.forEach(h => { h.ana = 9999; h.dev = 9999; h.test = 9999; h.source = '外部部门'; });
+dbIso.reqArchive.push({ id: 'hx', month: '2026-01', source: '外部部门', priority: 'P0', stage: '已验收', sys: 's_core', owner: 'p2', ana: 1, dev: 1, test: 1 });
+ok('改动看板档案不影响进度计算', JSON.stringify(E.progress(dbIso, 'r2')) === beforeIso.prog);
+ok('改动看板档案不影响阶段门禁', JSON.stringify(E.stageGate(dbIso, 'r2')) === beforeIso.gate);
+ok('改动看板档案不影响目标达成度', E.goalAchievement(dbIso, 'g1').rate === beforeIso.goal);
+ok('改动看板档案不影响到期提醒', E.reminders(dbIso).length === beforeIso.rem);
+ok('改动看板档案不影响人员占用日历', JSON.stringify(E.personLoad(dbIso, 'p2')) === beforeIso.load);
+ok('但看板自身会随之变化（数据源正确）', E.monthlyReqCount(dbIso).filter(r => r.month === '2026-01').length === 1);
 
 console.log('\n===== 结果：' + pass + ' 通过 / ' + fail + ' 失败 =====\n');
 process.exit(fail ? 1 : 0);

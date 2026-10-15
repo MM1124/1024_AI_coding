@@ -41,7 +41,7 @@ Object.defineProperty(modalRoot, 'innerHTML', {
   set(v) { _modalHTML = v; modalRoot._q = {}; }
 });
 
-const tabStubs = ['workbench', 'schedule', 'board', 'track', 'verify'].map(function (v) {
+const tabStubs = ['workbench', 'schedule', 'board', 'dash', 'track', 'verify'].map(function (v) {
   const t = makeEl('button'); t.dataset.view = v; return t;
 });
 
@@ -137,8 +137,9 @@ function notHasNav(name, s) { ok(name, nav().indexOf(s) < 0, '导航不应包含
 console.log('\n[1] 角色化侧边导航与页头');
 ok('默认角色为产品经理', app.UI.role === 'PM', app.UI.role);
 ok('默认落点为需求工作台', app.UI.view === 'workbench', app.UI.view);
-hasNav('导航含 5 个视图（含编号）', '需求工作台');
-ok('导航项数量 = 5', (nav().match(/data-view=/g) || []).length === 5, (nav().match(/data-view=/g) || []).length);
+hasNav('导航含 6 个视图（含编号）', '需求工作台');
+ok('导航项数量 = 6', (nav().match(/data-view=/g) || []).length === 6, (nav().match(/data-view=/g) || []).length);
+ok('导航含新增的数据看板', nav().indexOf('数据看板') >= 0);
 ok('导航为侧边纵向列表渲染（非页签隐藏式）', nav().indexOf('ni-body') >= 0 && nav().indexOf('ni-d') >= 0);
 ok('页头渲染当前视图标题', head().indexOf('需求工作台') >= 0, head().slice(0, 80));
 
@@ -166,8 +167,8 @@ ok('阶段分组按 STAGES 顺序出现', (function () {
 ok('分组组头含条数与阶段责任人', view().indexOf('class="ss-n">' + neBuckets[0].count + ' 条<') >= 0 && view().indexOf('主导') >= 0);
 ok('分组组头带阶段聚合指标', view().indexOf('ss-metrics') >= 0 && view().indexOf('ss-m">') >= 0);
 ok('卡片按阶段着色（注入 --sc 变量）', view().indexOf('--sc:var(--') >= 0);
-ok('概览与头部需求总数一致（4 条）',
-  view().indexOf('共 4 条需求') >= 0 && view().indexOf('共 4 条 · 按阶段归类') >= 0);
+ok('概览与头部需求总数一致（5 条）',
+  view().indexOf('共 5 条需求') >= 0 && view().indexOf('共 5 条 · 按阶段归类') >= 0);
 ok('列表页不出现空状态占位', view().indexOf('暂无需求') < 0);
 ok('卡片保留进度条（分析/开发/测试）',
   view().indexOf('>分析</span>') >= 0 && view().indexOf('>开发</span>') >= 0 && view().indexOf('>测试</span>') >= 0);
@@ -599,7 +600,7 @@ ok('测试角色确认功能点被拒绝', DB.featurePoints.filter(f => f.reqId 
 role('MGR');
 clickTab('verify');
 ok('管理者落点为验收评估', app.UI.view === 'verify', app.UI.view);
-ok('管理者导航含全部 5 个视图', (nav().match(/data-view=/g) || []).length === 5);
+ok('管理者导航含全部 6 个视图', (nav().match(/data-view=/g) || []).length === 6);
 changeById('selRole', 'PM');
 ok('身份切换后回到产品经理首页', app.UI.view === 'workbench', app.UI.view);
 
@@ -716,10 +717,71 @@ runIntervals(4);
 notHas('视图不残留未填占位', 'undefined');
 ok('导航内不残留隐藏页签类', nav().indexOf('hidden-tab') < 0);
 
+/* 数据看板：KPI / 月度趋势 / 部门维度 / 多维度工作量 */
+console.log('\n[10b] 数据看板');
+role('MGR');
+clickTab('dash');
+ok('数据看板可进入', app.UI.view === 'dash', app.UI.view);
+has('看板含页头标题', '数据看板');
+const kpi = E.dashboardKPI(DB);
+ok('KPI 区渲染 5 张卡', (view().match(/class="dash-kpi"/g) || []).length === 5,
+  String((view().match(/class="dash-kpi"/g) || []).length));
+has('KPI 需求总数与引擎一致（' + kpi.total + '）', '>' + kpi.total + '<');
+const trendRows = E.monthlyReqCount(DB);
+ok('月度序列覆盖 6 个月', trendRows.length === 6, String(trendRows.length));
+ok('月度柱状图渲染为 SVG（轴 / 柱 / 折线齐备）',
+  view().indexOf('chart-svg') >= 0 && view().indexOf('<polyline') >= 0 && view().indexOf('class="sv-bar"') >= 0);
+ok('月度柱数量 = 月份数', (view().match(/class="sv-bar"/g) || []).length >= trendRows.length);
+ok('月度明细表逐月列出', trendRows.every(r => view().indexOf('>' + r.month + '<') >= 0));
+const depts = E.deptStats(DB);
+ok('部门分布行数 = 部门数', (view().match(/class="dept-row"/g) || []).length === depts.length,
+  (view().match(/class="dept-row"/g) || []).length + ' vs ' + depts.length);
+ok('部门行含占比条与条数', view().indexOf('dr-track') >= 0 && view().indexOf('dr-num') >= 0);
+ok('部门统计表含工时三列', view().indexOf('分析</th>') >= 0 && view().indexOf('测试</th>') >= 0);
+
+/* 工作量维度切换 */
+ok('默认维度为按阶段', app.UI.dashDim === 'stage', app.UI.dashDim);
+ok('维度切换渲染 4 个按钮', (view().match(/data-act="dash-dim"/g) || []).length === 4,
+  String((view().match(/data-act="dash-dim"/g) || []).length));
+ok('默认维度按钮处于选中态', view().indexOf('btn on" data-act="dash-dim" data-id="stage"') >= 0);
+const wStage = E.workloadSeries(DB, 'stage');
+ok('按阶段维度三键为 分析/开发/测试', wStage.keys.join(',') === '分析,开发,测试', wStage.keys.join(','));
+ok('阶段维度图例展示累计工时', wStage.months.length > 0 && view().indexOf('h</b>') >= 0);
+clickAct('dash-dim', 'source');
+ok('切换到按部门维度生效', app.UI.dashDim === 'source', app.UI.dashDim);
+ok('切换后按钮选中态跟随', view().indexOf('btn on" data-act="dash-dim" data-id="source"') >= 0);
+const wSrc = E.workloadSeries(DB, 'source');
+ok('按部门维度键数 = 部门数', wSrc.keys.length === depts.length, wSrc.keys.join(','));
+ok('切换后表头同步为部门名', depts.every(d => view().indexOf(d.source) >= 0));
+clickAct('dash-dim', 'sys');
+const wSys = E.workloadSeries(DB, 'sys');
+ok('按系统维度：引擎键为系统 id，视图渲染为系统名',
+  wSys.keys.some(k => k.indexOf('s_') === 0) && view().indexOf('核心系统') >= 0 && view().indexOf('支付网关') >= 0,
+  wSys.keys.join(','));
+ok('按系统维度不再出现原始 id', view().indexOf('s_core') < 0);
+clickAct('dash-dim', 'owner');
+const wOwn = E.workloadSeries(DB, 'owner');
+ok('按人员维度：引擎键为人员 id，视图渲染为人员姓名',
+  wOwn.keys.some(k => k.indexOf('p') === 0) && view().indexOf('李伟') >= 0 && view().indexOf('王芳') >= 0,
+  wOwn.keys.join(','));
+ok('按人员维度不再出现原始 id（未指派人员兜底保留）',
+  view().indexOf('>p2<') < 0 && view().indexOf('未指派人员') >= 0);
+clickAct('dash-dim', 'stage');
+ok('可切回按阶段维度', app.UI.dashDim === 'stage');
+ok('各维度工作量总量一致（不因维度而丢数）',
+  ['stage', 'source', 'sys', 'owner'].every(d => E.workloadSeries(DB, d).grand === wStage.grand),
+  ['stage', 'source', 'sys', 'owner'].map(d => d + ':' + E.workloadSeries(DB, d).grand).join(' '));
+ok('看板只读：无写操作按钮',
+  view().indexOf('data-act="cr-save"') < 0 && view().indexOf('data-act="task-done"') < 0 && view().indexOf('data-act="fp-add"') < 0);
+['PM', 'DEV', 'QA', 'MGR'].forEach(function (r) {
+  role(r); clickTab('dash');
+  ok(r + ' 可查看数据看板', app.UI.view === 'dash' && view().length > 200, r + ':' + app.UI.view);
+});
+role('MGR');
 /* 全角色 × 全视图渲染自检：任何组合都不得抛异常或渲染空白 */
 ['PM', 'DEV', 'QA', 'MGR'].forEach(function (r) {
   role(r);
-  ['workbench', 'schedule', 'board', 'track', 'verify'].forEach(function (v) {
+  ['workbench', 'schedule', 'board', 'dash', 'track', 'verify'].forEach(function (v) {
     clickTab(v);
     ok('渲染 ' + r + ' / ' + v + ' 非空且无异常', view().length > 50 && errors.length === 0, errors.join(' | '));
   });
@@ -727,6 +789,43 @@ ok('导航内不残留隐藏页签类', nav().indexOf('hidden-tab') < 0);
 
 console.log('\n[11] 运行时异常检查');
 ok('全流程无未捕获异常', errors.length === 0, errors.join(' | '));
+
+/* 深链自检：用独立沙箱重启应用，验证 #视图 / #需求 直达与越权回落（不影响主流程桩状态） */
+function bootWithHash(hash) {
+  const errs2 = [];
+  const docStub = {
+    readyState: 'complete',
+    querySelector: q, querySelectorAll: () => [], createElement: makeEl,
+    addEventListener() { }, body: makeEl('body')
+  };
+  const sb = {
+    console: { log() { }, error() { } },
+    document: docStub,
+    localStorage: { getItem() { return null; }, setItem() { }, removeItem() { } },
+    setTimeout, clearTimeout, setInterval() { return 1; }, clearInterval() { },
+    Date, Math, JSON, Object, Array, String, Number, isNaN, parseInt, parseFloat, Error, RegExp, Boolean,
+    location: { hash: hash }
+  };
+  sb.globalThis = sb; sb.window = sb;
+  vm.createContext(sb);
+  ['data.js', 'engine.js', 'app.js'].forEach(f => {
+    try { vm.runInContext(fs.readFileSync(path.join(__dirname, f), 'utf8'), sb, { filename: f }); }
+    catch (e) { errs2.push(f + ': ' + e.message); }
+  });
+  return { app: sb.__app, errs: errs2 };
+}
+console.log('\n[12] 深链直达（#视图 / #需求）');
+const bDash = bootWithHash('#dash');
+ok('深链 #dash 直达数据看板', !!bDash.app && bDash.app.UI.view === 'dash' && bDash.errs.length === 0,
+  (bDash.app && bDash.app.UI.view) + ' ' + bDash.errs.join('|'));
+const bReq = bootWithHash('#r3');
+ok('深链 #r3 直达该需求详情页', !!bReq.app && bReq.app.UI.reqOpen === true && bReq.app.UI.reqId === 'r3',
+  bReq.app && (bReq.app.UI.reqOpen + '/' + bReq.app.UI.reqId));
+const bBad = bootWithHash('#nope');
+ok('未知 hash 回落角色首页', !!bBad.app && bBad.app.UI.view === 'workbench', bBad.app && bBad.app.UI.view);
+const bBare = bootWithHash('');
+ok('无 hash 默认落在角色首页', !!bBare.app && bBare.app.UI.view === 'workbench', bBare.app && bBare.app.UI.view);
+ok('深链启动无未捕获异常', errors.length === 0, errors.join(' | '));
 
 console.log('\n===== UI 冒烟结果：' + pass + ' 通过 / ' + fail + ' 失败 =====\n');
 process.exit(fail ? 1 : 0);
